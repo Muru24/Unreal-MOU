@@ -17,6 +17,7 @@ Saved/
 .vscode/
 .idea/
 *.sln
+*.slnx
 *.suo
 *.opensdf
 *.sdf
@@ -25,6 +26,7 @@ Saved/
 *.user
 *.userosscache
 *.sln.docstates
+*.Daily_Work_Log
 
 # Unreal generated project files
 *.xcodeproj
@@ -55,7 +57,8 @@ Saved/
 .claude/
 CLAUDE.md
 Claude.md
-
+TeamProject_MOU/Automation_TeamProject_MOU.slnx
+TeamProject_MOU/TeamProject_MOU.slnx
 
 
 # Automation / local machine files
@@ -76,3 +79,4 @@ Desktop.ini
 
 !*.md
 CLAUDE.md
+Daily_Work_Log.md
