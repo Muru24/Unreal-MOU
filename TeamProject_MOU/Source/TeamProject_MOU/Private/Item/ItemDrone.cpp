@@ -34,22 +34,66 @@ void AItemDrone::OnRep_IsDeployed()
 	// 클라이언트에서 배치 상태 변경 시의 훅 (현재 특별 처리는 없음)
 }
 
+// [DRONE-012] 후보 오프셋 중 플레이어에서 경로가 뚫린 첫 위치를 골라 반환.
+FVector AItemDrone::ChooseFollowOffset() const
+{
+	// 기본(오른쪽 뒤) FollowOffset을 기준으로 후보들을 만든다. Y 부호가 좌우.
+	const float BackX = FollowOffset.X;   // 뒤쪽 거리(음수)
+	const float SideY = FollowOffset.Y;   // 오른쪽 거리(양수)
+	const float UpZ   = FollowOffset.Z;
+
+	// 우선순위: 오른쪽뒤(기본) -> 왼쪽뒤 -> 정뒤 -> 오른쪽옆 -> 왼쪽옆
+	const TArray<FVector> Candidates = {
+		FVector(BackX,  SideY, UpZ),   // 오른쪽 뒤 (기본)
+		FVector(BackX, -SideY, UpZ),   // 왼쪽 뒤
+		FVector(BackX,   0.0f, UpZ),   // 정 뒤
+		FVector( 0.0f,  SideY, UpZ),   // 오른쪽 옆
+		FVector( 0.0f, -SideY, UpZ),   // 왼쪽 옆
+	};
+
+	const FTransform TargetTransform = FollowTarget->GetActorTransform();
+
+	// 경로 판정 기준점: 플레이어 몸통 높이(발밑 트레이스가 바닥에 걸리는 것 방지).
+	const FVector TraceStart = FollowTarget->GetActorLocation() + FVector(0.0f, 0.0f, UpZ);
+
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(FollowTarget);
+	QueryParams.AddIgnoredActor(this);
+
+	for (const FVector& Cand : Candidates)
+	{
+		const FVector CandWorld = TargetTransform.TransformPosition(Cand);
+
+		// 플레이어 -> 후보 지점 경로가 벽에 막히지 않으면(=플레이어가 그 위치를 "볼 수 있으면") 채택.
+		FHitResult Hit;
+		const bool bBlocked = GetWorld()->LineTraceSingleByChannel(
+			Hit, TraceStart, CandWorld, ECC_Visibility, QueryParams);
+
+		if (!bBlocked)
+		{
+			return CandWorld;
+		}
+	}
+
+	// 모든 후보가 막혔으면 기본(오른쪽 뒤) 위치를 반환(최후에는 sweep이 막아준다).
+	return TargetTransform.TransformPosition(FollowOffset);
+}
+
 // [DRONE-004] 팔로우 목표 위치 계산
-FVector AItemDrone::CalcTargetLocation() const
+FVector AItemDrone::CalcTargetLocation()
 {
 	if (!FollowTarget)
 	{
 		return GetActorLocation();
 	}
 
-	// 플레이어가 이동 중일 때만 베이스 목표 위치(플레이어 로컬 오프셋)를 갱신한다.
+	// 플레이어가 이동 중일 때만 베이스 목표 위치를 갱신한다(막힌 방향은 뚫린 후보로 자동 우회).
 	// 정지 중(이동값 0)이면 마지막 베이스 위치를 그대로 유지 → 카메라만 돌려도 드론이 안 따라 돈다.
 	const bool bIsMoving = FollowTarget->GetVelocity().Size2D() > MoveThreshold;
 
 	if (bIsMoving || !bHasCachedFollowBase)
 	{
-		const FTransform TargetTransform = FollowTarget->GetActorTransform();
-		CachedFollowBaseLocation = TargetTransform.TransformPosition(FollowOffset);
+		CachedFollowBaseLocation = ChooseFollowOffset();
 		bHasCachedFollowBase = true;
 	}
 
@@ -90,10 +134,14 @@ void AItemDrone::Tick(float DeltaTime)
 
 	const FVector TargetLoc = CalcTargetLocation();
 	const FVector NewLoc = FMath::VInterpTo(GetActorLocation(), TargetLoc, DeltaTime, FollowInterpSpeed);
-	SetActorLocation(NewLoc);
 
-	// 드론이 플레이어를 바라보도록 회전 (수평만)
-	FVector LookDir = FollowTarget->GetActorLocation() - NewLoc;
+	// bSweep=true: 목표(오른쪽 뒤)로 가는 경로에 벽/오브젝트가 있으면 그 앞에서 막힌다(뚫기 방지).
+	// 장애물이 사라지면 매 프레임 다시 목표로 VInterp하므로 자연히 원위치(오른쪽 뒤)로 복귀한다.
+	SetActorLocation(NewLoc, /*bSweep=*/true);
+
+	// 드론이 플레이어를 바라보도록 회전 (수평만). 실제 위치는 sweep으로 막혔을 수 있으니 현재 위치 사용.
+	const FVector CurrentLoc = GetActorLocation();
+	FVector LookDir = FollowTarget->GetActorLocation() - CurrentLoc;
 	LookDir.Z = 0.0f;
 	if (!LookDir.IsNearlyZero())
 	{
@@ -197,11 +245,16 @@ void AItemDrone::DeployAndFollow(ACharacter* User)
 	// 특정 플레이어에 소유가 묶여 있으면 "그 사람만" 처리 가능한 오해를 부르므로 정리한다.
 	SetOwner(nullptr);
 
-	// 공중에 떠서 따라다니므로 물리는 끄고, 플레이어를 막지 않도록 겹침만 처리.
+	// 공중에 떠서 따라다닌다. 물리는 끄되(직접 위치 제어), 벽/오브젝트에 막히도록 쿼리 콜리전은 유지한다.
+	// - 월드 static/dynamic: Block  -> 이동 sweep이 벽 앞에서 멈춤(뚫기 방지, "밀려남")
+	// - Pawn(플레이어): Overlap     -> 플레이어를 밀어내지 않음
 	if (MeshComponent)
 	{
 		MeshComponent->SetSimulatePhysics(false);
 		MeshComponent->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+		MeshComponent->SetCollisionResponseToAllChannels(ECR_Overlap);
+		MeshComponent->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+		MeshComponent->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
 		MeshComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 	}
 }
@@ -379,20 +432,8 @@ void AItemDrone::StoreItemFromHand(ACharacter* Interactor, AItemBase* HandItem)
 	}
 	MulticastAttachToDrone(HandItem);
 
-	// [DRONE-005] 맡긴 당시 내구도 기준으로 슬롯별 초당 감소량을 계산한다.
-	// 현재 내구도가 얼마든 DurabilityDrainDuration(기본 300초=5분)에 걸쳐 0이 되도록 한다.
-	const float PerSec = (DurabilityDrainDuration > 0.0f)
-		? (HandItem->CurrentDurability / DurabilityDrainDuration)
-		: 0.0f;
-
-	if (bIsPackage)
-	{
-		PackageDrainPerSecond = PerSec;
-	}
-	else
-	{
-		ItemDrainPerSecond = PerSec;
-	}
+	// 내구도 소모는 "드론 자신"의 CurrentDurability를 Tick에서 깎는다(슬롯별 계산 불필요).
+	// 보관물이 하나라도 있으면 TickDurabilityDrain이 자동으로 소모를 진행한다.
 }
 
 // [DRONE-002] 드론 -> 손 (회수). bRetrievePackage=true면 택배 슬롯, false면 일반 슬롯을 꺼낸다.
@@ -410,16 +451,14 @@ void AItemDrone::RetrieveItemToHand(ACharacter* Interactor, bool bRetrievePackag
 		return;
 	}
 
-	// 슬롯을 비우고 해당 슬롯의 내구도 소모를 멈춘다.
+	// 슬롯을 비운다. (드론 내구도 소모는 남은 다른 슬롯이 있으면 계속, 둘 다 비면 Tick이 자동으로 멈춤)
 	if (bRetrievePackage)
 	{
 		StoredPackage = nullptr;
-		PackageDrainPerSecond = 0.0f;
 	}
 	else
 	{
 		StoredItem = nullptr;
-		ItemDrainPerSecond = 0.0f;
 	}
 
 	// 드론 거치에서 떼어낸다.
@@ -468,35 +507,54 @@ void AItemDrone::MulticastAttachToDrone_Implementation(AItemBase* Item)
 // [DRONE-006] 아이템 보관 중 내구도 소모 (서버 전용). 일반/택배 두 슬롯 모두 처리.
 void AItemDrone::TickDurabilityDrain(float DeltaTime)
 {
-	// 한 슬롯의 내구도를 깎고, 0이 되면 파괴 후 슬롯/감소량을 비우는 공통 처리.
-	auto DrainSlot = [DeltaTime](TObjectPtr<AItemBase>& Slot, float& PerSecond)
+	// 뭔가를 하나라도 보관 중일 때만 드론 내구도가 깎인다. 아무것도 없으면 소모 정지.
+	if (!StoredItem && !StoredPackage)
 	{
-		if (!Slot || PerSecond <= 0.0f)
+		return;
+	}
+
+	if (DurabilityDrainDuration <= 0.0f)
+	{
+		return;
+	}
+
+	// 드론 자신의 내구도를 DurabilityDrainDuration(초)에 걸쳐 0이 되도록 깎는다.
+	const float DrainPerSecond = MaxDurability / DurabilityDrainDuration;
+	CurrentDurability -= DrainPerSecond * DeltaTime;
+
+	// CurrentDurability는 서버에서만 바뀌므로 서버 자신(호스트 화면)에서도 OnRep이 안 불린다. 직접 호출.
+	OnRep_CurrentDurability();
+
+	// 드론 내구도 소진: 보관물 Drop 후 드론 파괴.
+	if (CurrentDurability <= 0.0f)
+	{
+		CurrentDurability = 0.0f;
+		BreakDrone();
+	}
+}
+
+// [DRONE-011] 드론 내구도 소진 시: 보관 중인 아이템/택배를 바닥에 떨어뜨리고 드론을 파괴
+void AItemDrone::BreakDrone()
+{
+	// 보관 중인 것들을 드론에서 떼어 바닥에 Drop (AItemBase::Drop이 물리/충돌 복구 + Detach 처리).
+	auto DropSlot = [this](TObjectPtr<AItemBase>& Slot)
+	{
+		if (!Slot)
 		{
 			return;
 		}
 
-		Slot->CurrentDurability -= PerSecond * DeltaTime;
+		AItemBase* Item = Slot;
+		Slot = nullptr;
 
-		// CurrentDurability는 서버에서만 값을 바꾸므로, 서버 자신(리슨서버 호스트 화면)에서도
-		// OnRep이 자동 호출되지 않는다. 필요한 반응(UI 등)을 위해 직접 호출해 준다.
-		Slot->OnRep_CurrentDurability();
-
-		if (Slot->CurrentDurability <= 0.0f)
-		{
-			Slot->CurrentDurability = 0.0f;
-
-			AItemBase* ItemToDestroy = Slot;
-			Slot = nullptr;
-			PerSecond = 0.0f;
-
-			if (IsValid(ItemToDestroy))
-			{
-				ItemToDestroy->Destroy();
-			}
-		}
+		// 드론 위치 근처에 떨어뜨린다.
+		const FVector DropLoc = Item->GetActorLocation();
+		Item->Drop(DropLoc, nullptr);
 	};
 
-	DrainSlot(StoredItem, ItemDrainPerSecond);
-	DrainSlot(StoredPackage, PackageDrainPerSecond);
+	DropSlot(StoredItem);
+	DropSlot(StoredPackage);
+
+	// 드론 파괴.
+	Destroy();
 }

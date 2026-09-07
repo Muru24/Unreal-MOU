@@ -91,8 +91,9 @@ public:
 
 	// ---------------------------------------------------------
 	// [내구도 소모]
-	// 드론이 아이템을 보관하는 동안 보관된 아이템의 내구도가 이 시간(초)에 걸쳐 0이 되도록 깎인다.
-	// 기본 300초 = 5분(1판 플레이 타임). 아이템 MaxDurability 값과 무관하게 항상 5분에 0.
+	// 드론이 아이템(또는 택배)을 하나라도 보관하는 동안 "드론 자신"의 내구도(CurrentDurability)가
+	// 이 시간(초)에 걸쳐 0이 되도록 깎인다. 0이 되면 보관 중인 것들을 바닥에 떨어뜨리고 드론이 파괴된다.
+	// 기본 300초 = 5분(1판 플레이 타임).
 	// ---------------------------------------------------------
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Drone|Durability", meta = (ClampMin = "0.1"))
 	float DurabilityDrainDuration = 300.0f;
@@ -120,12 +121,11 @@ private:
 	// 드론 자체 Server RPC는 두지 않는다(드론 소유권=배치자에 묶여 다른 클라가 못 쓰던 문제 회피).
 	void HandleInteractOnServer(ACharacter* Character);
 
-	// [DRONE-005] 맡긴 당시 내구도 기준으로 계산한 슬롯별 초당 감소량 (서버에서만 사용)
-	float ItemDrainPerSecond = 0.0f;
-	float PackageDrainPerSecond = 0.0f;
-
-	// [DRONE-006] 아이템 보관 중 내구도를 시간에 따라 깎고, 0이 되면 파괴 (서버 전용)
+	// [DRONE-006] 뭔가를 보관하는 동안 드론 자신의 내구도를 깎고, 0이 되면 내용물 Drop 후 드론 파괴 (서버 전용)
 	void TickDurabilityDrain(float DeltaTime);
+
+	// [DRONE-011] 드론 내구도 소진 시: 보관 중인 슬롯 아이템들을 바닥에 떨어뜨리고 드론을 파괴 (서버 전용)
+	void BreakDrone();
 
 	// [DRONE-007] 손에서 배치되어 팔로우를 시작한다 (서버 전용 처리)
 	void DeployAndFollow(ACharacter* User);
@@ -149,14 +149,17 @@ private:
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastAttachToDrone(AItemBase* Item);
 
-	// [DRONE-004] 팔로우 목표 위치 계산 (플레이어 오프셋 + 보빙)
-	FVector CalcTargetLocation() const;
+	// [DRONE-004] 팔로우 목표 위치 계산 (선택된 오프셋 + 보빙). 서버 Tick에서만 호출.
+	FVector CalcTargetLocation();
+
+	// [DRONE-012] 플레이어에서 각 후보 오프셋 지점까지 경로가 뚫려 있는지 검사해, 따라갈 오프셋을 고른다.
+	// 우선순위: 오른쪽뒤(기본) -> 왼쪽뒤 -> 정뒤 -> 오른쪽옆 -> 왼쪽옆. 다 막히면 기본값 반환.
+	FVector ChooseFollowOffset() const;
 
 	// 보빙 위상 누적용
 	float BobbingPhase = 0.0f;
 
 	// 정지 중 드론을 고정하기 위한, 마지막으로 갱신한 목표 위치(보빙 제외 베이스). 서버에서만 사용.
-	// const 함수인 CalcTargetLocation()에서 갱신하므로 mutable.
-	mutable FVector CachedFollowBaseLocation = FVector::ZeroVector;
-	mutable bool bHasCachedFollowBase = false;
+	FVector CachedFollowBaseLocation = FVector::ZeroVector;
+	bool bHasCachedFollowBase = false;
 };
