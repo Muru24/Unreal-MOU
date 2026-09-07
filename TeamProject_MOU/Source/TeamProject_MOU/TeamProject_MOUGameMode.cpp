@@ -165,7 +165,7 @@ void ATeamProject_MOUGameMode::CompleteLevelTimeoutSequence()
 	}
 
 	bTimeoutTravelStarted = true;
-	TravelToLobbyAfterWipe();
+	TravelToLobbyAfterTimeout();
 }
 
 void ATeamProject_MOUGameMode::CheckAllPlayersDead()
@@ -302,9 +302,14 @@ void ATeamProject_MOUGameMode::FinishRun(ERunEndReason Reason)
 	GetWorldTimerManager().ClearTimer(LevelTimerUpdateHandle);
 	DestroyPlayerOwnedItems();
 
-	if (Reason == ERunEndReason::AllPlayersDead || Reason == ERunEndReason::LevelTimeExpired)
+	if (Reason == ERunEndReason::AllPlayersDead)
 	{
 		TravelToLobbyAfterWipe();
+		return;
+	}
+	if (Reason == ERunEndReason::LevelTimeExpired)
+	{
+		TravelToLobbyAfterTimeout();
 		return;
 	}
 
@@ -353,6 +358,36 @@ void ATeamProject_MOUGameMode::TravelToLobbyAfterWipe()
 	{
 		UE_LOG(LogTemp, Error, TEXT("LobbyMap is not configured. Cannot travel after party wipe."));
 		return;
+	}
+
+	RunState->SetRunState(ERunPhase::Resetting, RunState->RunEndReason);
+	GetWorld()->ServerTravel(LobbyPackageName, false);
+}
+
+void ATeamProject_MOUGameMode::TravelToLobbyAfterTimeout()
+{
+	const FSoftObjectPath LobbyPath = LobbyMap.ToSoftObjectPath();
+	const FString LobbyPackageName = LobbyPath.GetLongPackageName();
+	if (LobbyPackageName.IsEmpty())
+	{
+		UE_LOG(LogTemp, Error, TEXT("LobbyMap is not configured. Cannot travel after level timeout."));
+		return;
+	}
+
+	// 타임아웃도 해당 HalfDay를 소비한다. 런 데이터는 초기화하지 않고 증가한 경제 상태를
+	// GameInstance에 저장해 로비의 새 GameState가 그대로 복원하도록 한다.
+	if (AProjectGameStateBase* State = GetGameState<AProjectGameStateBase>())
+	{
+		State->AdvanceEconomyHalfDay();
+		if (GameCycleState)
+		{
+			GameCycleState->NotifyEconomyTimeAdvanced(State->GetEconomyCurrentHalfDay());
+		}
+	}
+	if (UProjectGameInstanceBase* GameInstance = GetGameInstance<UProjectGameInstanceBase>())
+	{
+		GameInstance->ClearPendingDeliveryData();
+		GameInstance->SaveEconomyData();
 	}
 
 	RunState->SetRunState(ERunPhase::Resetting, RunState->RunEndReason);
