@@ -15,6 +15,7 @@ UGA_Groggy::UGA_Groggy()
 		FGameplayTagContainer AssetTagsContainer;
 		AssetTagsContainer.AddTag(GroggyTag);
 		SetAssetTags(AssetTagsContainer);
+		ActivationOwnedTags.AddTag(GroggyTag);
 	}
 
 	FGameplayTag SprintTag = FGameplayTag::RequestGameplayTag(FName("Ability.Player.Sprint"), false);

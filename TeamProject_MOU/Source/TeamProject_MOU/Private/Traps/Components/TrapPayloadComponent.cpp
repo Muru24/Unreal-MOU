@@ -2,6 +2,8 @@
 #include "Traps/Data/TrapDataAsset.h"
 #include "Traps/Interfaces/TrapTargetInterface.h"
 #include "GameplayEffect.h"
+#include "AbilitySystemBlueprintLibrary.h"
+#include "GameplayTagContainer.h"
 
 UTrapPayloadComponent::UTrapPayloadComponent()
 {
@@ -61,7 +63,24 @@ void UTrapPayloadComponent::ExecutePayloadOnActor(AActor* TargetActor, const UTr
 		ITrapTargetInterface::Execute_ForceDropCarriedItem(TargetActor);
 	}
 
-	// 6. 상호작용 알림
+	// 6. 감전 상태이상 이벤트 발송 (GA_CC_Electric 트리거 -> 감전 몽타주 재생 및 이동 차단)
+	if (DefaultHazardType == ETrapHazardType::ElectricShock)
+	{
+		static const FGameplayTag ElectricTag1 = FGameplayTag::RequestGameplayTag(FName("Event.Reaction.Eletric"), false);
+		static const FGameplayTag ElectricTag2 = FGameplayTag::RequestGameplayTag(FName("Event.Reaction.Electric"), false);
+		const FGameplayTag& TargetEventTag = ElectricTag1.IsValid() ? ElectricTag1 : ElectricTag2;
+
+		if (TargetEventTag.IsValid())
+		{
+			FGameplayEventData EventData;
+			EventData.EventTag = TargetEventTag;
+			EventData.Instigator = GetOwner();
+			EventData.Target = TargetActor;
+			UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(TargetActor, TargetEventTag, EventData);
+		}
+	}
+
+	// 7. 상호작용 알림
 	ITrapTargetInterface::Execute_OnTrapHazardEncountered(TargetActor, DefaultHazardType, GetOwner());
 }
 

@@ -104,6 +104,26 @@ void ACharacterBase::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 }
 
+void ACharacterBase::DoMove(float Right, float Forward)
+{
+	if (!CanMove())
+	{
+		return;
+	}
+
+	Super::DoMove(Right, Forward);
+}
+
+void ACharacterBase::DoJumpStart()
+{
+	if (!CanMove())
+	{
+		return;
+	}
+
+	Super::DoJumpStart();
+}
+
 UAbilitySystemComponent* ACharacterBase::GetAbilitySystemComponent() const
 {
 	return AbilitySystemComponent;
@@ -636,5 +656,19 @@ void ACharacterBase::DrainBattery_Implementation(float DrainAmount)
 
 void ACharacterBase::OnTrapHazardEncountered_Implementation(ETrapHazardType HazardType, AActor* TrapActor)
 {
-	// 블루프린트 연출 또는 사운드 트리거용
+	if (HazardType == ETrapHazardType::ElectricShock)
+	{
+		static const FGameplayTag ElectricTag1 = FGameplayTag::RequestGameplayTag(FName("Event.Reaction.Eletric"), false);
+		static const FGameplayTag ElectricTag2 = FGameplayTag::RequestGameplayTag(FName("Event.Reaction.Electric"), false);
+		const FGameplayTag& TargetEventTag = ElectricTag1.IsValid() ? ElectricTag1 : ElectricTag2;
+
+		if (TargetEventTag.IsValid())
+		{
+			FGameplayEventData EventData;
+			EventData.EventTag = TargetEventTag;
+			EventData.Instigator = TrapActor;
+			EventData.Target = this;
+			UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(this, TargetEventTag, EventData);
+		}
+	}
 }

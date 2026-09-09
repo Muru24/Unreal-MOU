@@ -9,6 +9,8 @@
 class UMaterialInstanceDynamic;
 class UAbilitySystemComponent;
 class ACharacterBase;
+class UNiagaraComponent;
+class UNiagaraSystem;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnVisualPresetApplied, const FCharacterVisualPreset&, AppliedPreset);
 
@@ -74,6 +76,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Visual")
 	const TArray<UMaterialInstanceDynamic*>& GetBodyMaterialInstances() const { return BodyMaterialInstances; }
 
+	// 신체(Mesh)에 부착된 상태 이상 나이아가라 컴포넌트 반환
+	UFUNCTION(BlueprintPure, Category = "Visual|FX")
+	UNiagaraComponent* GetBodyNiagaraComponent() const { return BodyNiagaraComponent; }
+
 	// 동적 머티리얼 수동 재초기화
 	UFUNCTION(BlueprintCallable, Category = "Visual")
 	void ReinitializeDynamicMaterials();
@@ -90,6 +96,10 @@ protected:
 	// 신체 동적 머티리얼 인스턴스 (Skeletal Mesh)
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UMaterialInstanceDynamic>> BodyMaterialInstances;
+
+	// 신체(Mesh)에 부착된 상태 이상 나이아가라 컴포넌트
+	UPROPERTY(Transient)
+	TObjectPtr<UNiagaraComponent> BodyNiagaraComponent = nullptr;
 
 	// 현재 적용 중인 프리셋
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Visual")
@@ -118,6 +128,9 @@ private:
 
 	// MID에 파라미터 실제 적용
 	void ApplyPresetToMaterials(const FCharacterVisualPreset& Preset);
+
+	// 신체에 나이아가라 이펙트 부착 및 활성화/비활성화 처리
+	void ApplyNiagaraEffect(UNiagaraSystem* NewSystem, FName SocketName);
 
 	void HandleGameplayTagChanged(const FGameplayTag Tag, int32 NewCount);
 

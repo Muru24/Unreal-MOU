@@ -16,6 +16,7 @@ enum class EStatusEffectType : uint8
 	DamageOverTime	UMETA(DisplayName = "도트류"),
 	Slow			UMETA(DisplayName = "슬로우"),
 	Knockdown		UMETA(DisplayName = "넘어짐"),
+	FallFront		UMETA(DisplayName = "앞으로 넘어짐"),
 	Fear			UMETA(DisplayName = "공포"),
 	Taunt			UMETA(DisplayName = "도발")
 };

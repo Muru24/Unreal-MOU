@@ -122,13 +122,16 @@ protected:
 	// [전환 유예] 2→1인 전환 직후 이탈 검사를 잠시 스킵하여 강제 드랍 연쇄 방지
 	float TransitionGracePeriod = 0.0f;
 
-public:
+protected:
+	virtual void OnItemHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit) override;
+	virtual void HandlePlayerHit(class AMainCharacter* HitPlayer, float ImpactSpeed) override;
 
+public:
 	// ---------------------------------------------------------
 	// [내구도 및 파손 시스템]
 	// ---------------------------------------------------------
 	
-	// 물리적 충돌 감지 콜백
+	// 물리적 충돌 감지 콜백 (하위 호환)
 	UFUNCTION()
 	void OnPackageHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
 
@@ -151,6 +154,39 @@ protected:
 	// [RPC] 모든 클라이언트에서 파손 연출을 재생하기 위한 Multicast
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastOnPackageBroken();
+
+	// [RPC] 모든 클라이언트에서 충돌 사운드를 재생하기 위한 Multicast
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastPlayHitSound(FVector HitLocation, float VolumeMultiplier, float PitchMultiplier);
+
+public:
+	// ---------------------------------------------------------
+	// [사운드 시스템 (Audio)]
+	// ---------------------------------------------------------
+
+	// 벽이나 바닥에 부딪혔을 때 재생되는 물리 충돌음
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Package|Audio")
+	TObjectPtr<class USoundBase> HitSound;
+
+	// 내구도가 0이 되어 완전히 부서졌을 때 재생되는 파손음
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Package|Audio")
+	TObjectPtr<class USoundBase> BrokenSound;
+
+	// 충돌음이 발생하는 최소 속도 (cm/s, 이보다 느리면 소리 미발생)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Package|Audio")
+	float MinHitSpeedForSound = 200.0f;
+
+	// 최대 볼륨(1.0)에 도달하는 충돌 속도 (cm/s)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Package|Audio")
+	float MaxHitSpeedForSound = 1200.0f;
+
+	// 충돌음 연속 재생 방지 쿨다운 (초 단위, 물리 충돌 시 소리 겹침 방지)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Package|Audio")
+	float HitSoundCooldown = 0.15f;
+
+private:
+	// 마지막 충돌음 재생 시간 추적용
+	float LastHitSoundTime = -1.0f;
 
 public:
 	// ---------------------------------------------------------
