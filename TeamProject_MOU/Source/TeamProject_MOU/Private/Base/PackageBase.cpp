@@ -13,6 +13,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Ability/GA_CoopCarry.h"
+#include "Kismet/GameplayStatics.h"
 
 APackageBase::APackageBase()
 {
@@ -62,13 +63,6 @@ bool APackageBase::CanBePickedUpBy(AActor* PotentialPicker) const
 void APackageBase::PostInitializeComponents()
 {
 	Super::PostInitializeComponents();
-
-	// 메시에 물리 충돌 이벤트 바인딩
-	if (MeshComponent)
-	{
-		MeshComponent->SetNotifyRigidBodyCollision(true); // Hit 이벤트 발생 허용
-		MeshComponent->OnComponentHit.AddDynamic(this, &APackageBase::OnPackageHit);
-	}
 }
 
 void APackageBase::Tick(float DeltaTime)
@@ -583,33 +577,96 @@ void APackageBase::UpdateCarriersSpeedModifier()
 	CurrentSpeedRatio = 1.0f;
 }
 
-void APackageBase::OnPackageHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
+void APackageBase::HandlePlayerHit(AMainCharacter* HitPlayer, float ImpactSpeed)
 {
-	// 캐릭터가 밟거나 가볍게 부딪히는 것은 무시 (물리적 낙하/충돌만 취급)
-	if (bIsBroken || OtherActor == this)
+	if (!HitPlayer)
 	{
 		return;
 	}
 
-	// 충돌 순간의 물리 속도(충격량)를 구함
-	float ImpactSpeed = HitComponent->GetComponentVelocity().Size();
-
-	// 플레이어(MainCharacter)와 부딪혔을 경우 넉다운/피격 처리 검사
-	if (AMainCharacter* HitPlayer = Cast<AMainCharacter>(OtherActor))
+	// 500 이상: FallDown (Knockdown)
+	if (ImpactSpeed >= KnockdownThresholdSpeed)
 	{
-		// 임팩트 속도가 설정된 넉다운 기준치 이상일 때만 기절(Knockdown) 처리
-		if (ImpactSpeed >= KnockdownThresholdSpeed)
+		HitPlayer->Knockdown();
+		UE_LOG(LogTemp, Warning, TEXT("[%s] 택배 고속 충돌(FallDown)! 속도: %f"), *GetName(), ImpactSpeed);
+	}
+	// 500 미만: 피격 애니메이션 출력
+	else
+	{
+		HitPlayer->PlayHitReaction(0.5f);
+		UE_LOG(LogTemp, Log, TEXT("[%s] 택배 저속 충돌(HitReaction)! 속도: %f"), *GetName(), ImpactSpeed);
+	}
+}
+
+void APackageBase::MulticastPlayHitSound_Implementation(FVector HitLocation, float VolumeMultiplier, float PitchMultiplier)
+{
+	if (HitSound)
+	{
+		// 사운드 에셋 자체의 감쇠 설정(Sound Attenuation)을 100% 우선 적용
+		UGameplayStatics::PlaySoundAtLocation(
+			this,
+			HitSound,
+			HitLocation,
+			VolumeMultiplier,
+			PitchMultiplier
+		);
+	}
+}
+
+void APackageBase::OnItemHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
+{
+	// 유효하지 않은 액터이거나 자기 자신과의 충돌은 무시
+	if (!OtherActor || OtherActor == this)
+	{
+		return;
+	}
+
+	// 부모 클래스의 플레이어 충돌 및 자폭 방지 로직 수행 (내부에서 HandlePlayerHit 호출)
+	Super::OnItemHit(HitComponent, OtherActor, OtherComp, NormalImpulse, Hit);
+
+	// 충돌 순간의 물리 속도(충격량)를 구함
+	float ImpactSpeed = HitComponent ? HitComponent->GetComponentVelocity().Size() : 0.0f;
+	if (ImpactSpeed <= 0.0f && !NormalImpulse.IsNearlyZero())
+	{
+		ImpactSpeed = NormalImpulse.Size() / FMath::Max(1.0f, ItemWeight);
+	}
+
+	// [물리 충돌 사운드 재생] 속도가 최소 기준 이상일 때 쿨다운을 거쳐 멀티캐스트 재생
+	if (HitSound && ImpactSpeed >= MinHitSpeedForSound)
+	{
+		float CurrentTime = GetWorld()->GetTimeSeconds();
+		if (CurrentTime - LastHitSoundTime >= HitSoundCooldown)
 		{
-			HitPlayer->Knockdown();
-			UE_LOG(LogTemp, Warning, TEXT("[%s] 플레이어를 세게 타격하여 기절시켰습니다! 속도: %f"), *GetName(), ImpactSpeed);
+			LastHitSoundTime = CurrentTime;
+
+			// 충돌 속도에 따른 볼륨 조절 (0.3 ~ 1.0)
+			float VolumeRatio = FMath::GetMappedRangeValueClamped(
+				FVector2D(MinHitSpeedForSound, MaxHitSpeedForSound),
+				FVector2D(0.3f, 1.0f),
+				ImpactSpeed
+			);
+
+			// 자연스러운 연출을 위한 미세 피치 변주 (0.95 ~ 1.05)
+			float RandomPitch = FMath::RandRange(0.95f, 1.05f);
+
+			FVector PlayLoc = GetActorLocation();
+			if (!Hit.ImpactPoint.IsNearlyZero())
+			{
+				PlayLoc = FVector(Hit.ImpactPoint);
+			}
+			MulticastPlayHitSound(PlayLoc, VolumeRatio, RandomPitch);
 		}
-		else if (ImpactSpeed > 150.0f)
-		{
-			HitPlayer->PlayHitReaction(0.5f);
-			UE_LOG(LogTemp, Log, TEXT("[%s] 플레이어 피격 반응 발생! 속도: %f"), *GetName(), ImpactSpeed);
-		}
-		
-		// 플레이어와의 충돌에서는 패키지 자체의 내구도 감소는 진행하지 않음(기획에 따라 변경 가능)
+	}
+
+	// 이미 파손된 상태라면 내구도 감소 및 추가 판정 스킵 (충돌음은 정상 발생)
+	if (bIsBroken)
+	{
+		return;
+	}
+
+	// 플레이어와의 충돌에서는 패키지 자체의 내구도 감소는 진행하지 않음
+	if (Cast<AMainCharacter>(OtherActor))
+	{
 		return;
 	}
 
@@ -637,6 +694,11 @@ void APackageBase::OnPackageHit(UPrimitiveComponent* HitComponent, AActor* Other
 	}
 }
 
+void APackageBase::OnPackageHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
+{
+	OnItemHit(HitComponent, OtherActor, OtherComp, NormalImpulse, Hit);
+}
+
 void APackageBase::DamagePackage(float DamageAmount)
 {
 	if (bIsBroken || DamageAmount <= 0.0f)
@@ -660,12 +722,12 @@ void APackageBase::DamagePackage(float DamageAmount)
 	if (CurrentDurability <= 0.0f)
 	{
 		CurrentDurability = 0.0f;
-		bIsBroken = true;  // [Replicated] 이 값이 바뀌면 클라이언트의 OnRep_bIsBroken이 자동 호출됨
+		bIsBroken = true;  // [Replicated]
 		
 		UE_LOG(LogTemp, Error, TEXT("[%s] 택배 파손! 가치가 0원이 되었습니다."), *GetName());
 		
-		// 서버 자신도 연출 실행 (OnRep은 서버에서는 호출 안 되므로 직접 호출)
-		OnPackageBroken();
+		// 모든 클라이언트와 서버에서 파손 연출(머티리얼 변경) 및 파손 사운드 재생
+		MulticastOnPackageBroken();
 	}
 }
 
@@ -695,9 +757,20 @@ int32 APackageBase::GetCurrentValue() const
 
 void APackageBase::MulticastOnPackageBroken_Implementation()
 {
-	// 블루프린트 이벤트를 모든 클라이언트에서 실행 (메시 교체, 파티클 등)
-	// OnRep_bIsBroken에서도 호출되므로 혹시 모를 이중 호출에 주의
+	// 블루프린트 이벤트를 모든 클라이언트에서 실행 (머티리얼 파라미터 변경, 파티클 등)
 	OnPackageBroken();
+
+	// 파손 사운드 재생 (사운드 에셋 자체의 감쇠 설정을 100% 우선 적용)
+	if (BrokenSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(
+			this,
+			BrokenSound,
+			GetActorLocation(),
+			1.0f,
+			1.0f
+		);
+	}
 }
 
 

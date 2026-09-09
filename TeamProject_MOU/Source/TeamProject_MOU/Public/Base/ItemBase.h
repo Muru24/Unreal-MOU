@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
@@ -73,6 +73,25 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Item|Tracking")
 	TObjectPtr<AActor> LastOwner;
 
+	// 던져진 상태인지 여부 (충돌 시 피격 판정용)
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Item|Throw")
+	bool bWasThrown = false;
+
+	// 이 아이템을 마지막으로 던진 액터 (자폭 방지용)
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Item|Throw")
+	TWeakObjectPtr<AActor> LastThrower;
+
+protected:
+	virtual void PostInitializeComponents() override;
+
+	// 물리 충돌 감지 콜백 (플레이어 피격 등 공통 처리)
+	UFUNCTION()
+	virtual void OnItemHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
+
+	// 플레이어에게 부딪혔을 때 호출되는 가상 함수 (자식 클래스에서 속도별 분기 오버라이드)
+	virtual void HandlePlayerHit(class AMainCharacter* HitPlayer, float ImpactSpeed);
+
+public:
 	// ---------------------------------------------------------
 	// [상호작용 인터페이스 구현 (IInteractableInterface)]
 	// ---------------------------------------------------------

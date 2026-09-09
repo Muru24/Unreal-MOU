@@ -6,6 +6,9 @@
 #include "Traps/Components/TrapPayloadComponent.h"
 #include "Traps/Data/TrapDataAsset.h"
 #include "Base/EventObjectBase.h"
+#include "AbilitySystemBlueprintLibrary.h"
+#include "GameplayTagContainer.h"
+#include "Player/MainCharacter.h"
 
 ATrapCrusher::ATrapCrusher()
 {
@@ -162,7 +165,21 @@ void ATrapCrusher::HandleCrushOverlap(UPrimitiveComponent* OverlappedComp, AActo
 		PayloadComponent->ExecutePayloadOnActor(OtherActor, TrapData);
 	}
 
-	// 3. 대상을 찍어누른 즉시 모든 클라이언트에 정지 및 홀드 전파
+	// 3. 대상이 캐릭터인 경우 앞으로 넘어짐(FallFront) 어빌리티 발동
+	if (Cast<ACharacterBase>(OtherActor))
+	{
+		static const FGameplayTag FallFrontTag = FGameplayTag::RequestGameplayTag(FName("Event.Reaction.FallFront"), false);
+		if (FallFrontTag.IsValid())
+		{
+			FGameplayEventData EventData;
+			EventData.EventTag = FallFrontTag;
+			EventData.Instigator = this;
+			EventData.Target = OtherActor;
+			UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(OtherActor, FallFrontTag, EventData);
+		}
+	}
+
+	// 4. 대상을 찍어누른 즉시 모든 클라이언트에 정지 및 홀드 전파
 	FVector ImpactLoc = CrusherMesh ? CrusherMesh->GetRelativeLocation() : TargetCrusherRelativeLocation;
 	bIsDescending = false;
 	BottomHoldTimer = BottomHoldDuration;

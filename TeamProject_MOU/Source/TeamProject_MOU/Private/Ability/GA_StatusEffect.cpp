@@ -58,6 +58,9 @@ void UGA_StatusEffect::ActivateAbility(const FGameplayAbilitySpecHandle Handle, 
 	case EStatusEffectType::Knockdown:
 		TagName = TEXT("State.Knockdown");
 		break;
+	case EStatusEffectType::FallFront:
+		TagName = TEXT("State.CC.FallFront");
+		break;
 	case EStatusEffectType::Fear:
 		TagName = TEXT("State.Fear");
 		break;
