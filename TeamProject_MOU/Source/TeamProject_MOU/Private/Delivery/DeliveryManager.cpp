@@ -274,70 +274,49 @@ void ADeliveryManager::RecordPlayerDelivery(APackageBase* Package, int32 Deliver
 {
 	if (!IsValid(Package)) return;
 
-	TSet<AMainCharacter*> Contributors;
-	for (AActor* Carrier : Package->CurrentCarriers)
+	// 약탈 정산과 같은 규칙: 아이템을 마지막으로 소유(집어서 운반)한 한 명에게 귀속한다.
+	// 배달 구역에 내려놓고 떠난 뒤 타이머가 완료되어도 LastOwner는 유지된다.
+	const AMainCharacter* OwnerCharacter = Cast<AMainCharacter>(Package->LastOwner);
+	if (!IsValid(OwnerCharacter) || !OwnerCharacter->IsPlayerControlled()) return;
+
+	const APlayerState* PlayerState = OwnerCharacter->GetPlayerState();
+	const int32 PlayerId = PlayerState ? PlayerState->GetPlayerId() : INDEX_NONE;
+	const FString PlayerName = PlayerState ? PlayerState->GetPlayerName() : OwnerCharacter->GetName();
+	int32 PlayerIndex = Progress.PlayerResults.IndexOfByPredicate(
+		[PlayerId, &PlayerName](const FPlayerSettlementData& Player)
 	{
-		if (AMainCharacter* Character = Cast<AMainCharacter>(Carrier))
-		{
-			Contributors.Add(Character);
-		}
-	}
-	if (AMainCharacter* LastOwnerCharacter = Cast<AMainCharacter>(Package->LastOwner))
+		return Player.PlayerId == PlayerId && Player.PlayerName == PlayerName;
+	});
+	if (PlayerIndex == INDEX_NONE)
 	{
-		Contributors.Add(LastOwnerCharacter);
-	}
-	for (TActorIterator<AMainCharacter> It(GetWorld()); It; ++It)
-	{
-		if (UCarryingComponent* Carrying = It->GetCarryingComponent();
-			Carrying && Carrying->GetCarriedActor() == Package)
-		{
-			Contributors.Add(*It);
-		}
+		FPlayerSettlementData Player;
+		Player.PlayerId = PlayerId;
+		Player.PlayerName = PlayerName;
+		PlayerIndex = Progress.PlayerResults.Add(MoveTemp(Player));
 	}
 
-	for (AMainCharacter* Character : Contributors)
+	FPlayerSettlementData& Player = Progress.PlayerResults[PlayerIndex];
+	++Player.DeliveredItemCount;
+	Player.EarnedGold += DeliveryValue;
+	const int32 ItemIndex = Player.DeliveredItems.IndexOfByPredicate(
+		[Package](const FSettlementItemEntry& Entry)
+		{
+			return Entry.ItemClass == Package->GetClass();
+		});
+	if (ItemIndex != INDEX_NONE)
 	{
-		if (!IsValid(Character) || !Character->IsPlayerControlled()) continue;
-
-		const APlayerState* PlayerState = Character->GetPlayerState();
-		const int32 PlayerId = PlayerState ? PlayerState->GetPlayerId() : INDEX_NONE;
-		const FString PlayerName = PlayerState ? PlayerState->GetPlayerName() : Character->GetName();
-		int32 PlayerIndex = Progress.PlayerResults.IndexOfByPredicate(
-			[PlayerId, &PlayerName](const FPlayerSettlementData& Player)
-			{
-				return Player.PlayerId == PlayerId && Player.PlayerName == PlayerName;
-			});
-		if (PlayerIndex == INDEX_NONE)
-		{
-			FPlayerSettlementData Player;
-			Player.PlayerId = PlayerId;
-			Player.PlayerName = PlayerName;
-			PlayerIndex = Progress.PlayerResults.Add(MoveTemp(Player));
-		}
-
-		FPlayerSettlementData& Player = Progress.PlayerResults[PlayerIndex];
-		++Player.DeliveredItemCount;
-		Player.EarnedGold += DeliveryValue;
-		const int32 ItemIndex = Player.DeliveredItems.IndexOfByPredicate(
-			[Package](const FSettlementItemEntry& Entry)
-			{
-				return Entry.ItemClass == Package->GetClass();
-			});
-		if (ItemIndex != INDEX_NONE)
-		{
-			++Player.DeliveredItems[ItemIndex].Quantity;
-			Player.DeliveredItems[ItemIndex].EarnedGold += DeliveryValue;
-		}
-		else
-		{
-			FSettlementItemEntry Entry;
-			Entry.ItemClass = Package->GetClass();
-			Entry.ItemName = Package->ItemName;
-			Entry.ItemIcon = Package->ItemIcon;
-			Entry.Quantity = 1;
-			Entry.EarnedGold = DeliveryValue;
-			Player.DeliveredItems.Add(MoveTemp(Entry));
-		}
+		++Player.DeliveredItems[ItemIndex].Quantity;
+		Player.DeliveredItems[ItemIndex].EarnedGold += DeliveryValue;
+	}
+	else
+	{
+		FSettlementItemEntry Entry;
+		Entry.ItemClass = Package->GetClass();
+		Entry.ItemName = Package->ItemName;
+		Entry.ItemIcon = Package->ItemIcon;
+		Entry.Quantity = 1;
+		Entry.EarnedGold = DeliveryValue;
+		Player.DeliveredItems.Add(MoveTemp(Entry));
 	}
 }
 

@@ -1,5 +1,7 @@
 #include "Base/ItemBase.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/InventoryComponent.h"
+#include "Engine/Texture2D.h"
 #include "Net/UnrealNetwork.h"
 #include "Player/MainCharacter.h"
 
@@ -68,6 +70,25 @@ void AItemBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetim
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(AItemBase, CurrentDurability);
+	DOREPLIFETIME(AItemBase, ItemIcon);
+}
+
+void AItemBase::OnRep_ItemIcon()
+{
+	// 슬롯 참조보다 아이콘이 늦게 복제된 경우에도 복원된 슬롯 UI를 갱신합니다.
+	AActor* InventoryOwner = GetOwner();
+	if (!InventoryOwner) InventoryOwner = GetAttachParentActor();
+	UInventoryComponent* Inventory = InventoryOwner
+		? InventoryOwner->FindComponentByClass<UInventoryComponent>() : nullptr;
+	if (!Inventory) return;
+
+	for (int32 SlotIndex = 0; SlotIndex < Inventory->InventorySlots.Num(); ++SlotIndex)
+	{
+		if (Inventory->InventorySlots[SlotIndex] == this)
+		{
+			Inventory->OnInventorySlotChanged.Broadcast(SlotIndex, this);
+		}
+	}
 }
 
 void AItemBase::OnRep_CurrentDurability()
@@ -306,6 +327,7 @@ void AItemBase::OnUnequipped_Implementation(AActor* Equipper)
 void AItemBase::SaveItemToData_Implementation(FStoredItemInstanceData& OutData) const
 {
 	OutData.ItemClass = GetClass();
+	OutData.ItemIcon = ItemIcon;
 	OutData.Transform = GetActorTransform();
 	OutData.CurrentUseCount = CurrentUseCount;
 	OutData.CurrentDurability = CurrentDurability;
@@ -314,6 +336,11 @@ void AItemBase::SaveItemToData_Implementation(FStoredItemInstanceData& OutData) 
 
 void AItemBase::LoadItemFromData_Implementation(const FStoredItemInstanceData& InData)
 {
+	// 아이콘 필드가 없던 기존 데이터는 클래스 기본 아이콘을 유지합니다.
+	if (InData.ItemIcon)
+	{
+		ItemIcon = InData.ItemIcon;
+	}
 	CurrentUseCount = InData.CurrentUseCount;
 	CurrentDurability = InData.CurrentDurability;
 	SetActorTransform(InData.Transform);

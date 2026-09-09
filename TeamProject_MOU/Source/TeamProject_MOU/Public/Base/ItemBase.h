@@ -36,8 +36,11 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Item|Data")
 	FText ItemName;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Item|Data")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, ReplicatedUsing = OnRep_ItemIcon, Category = "Item|Data")
 	TObjectPtr<UTexture2D> ItemIcon;
+
+	UFUNCTION()
+	void OnRep_ItemIcon();
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Item|Data")
 	float ItemWeight = 1.0f;
