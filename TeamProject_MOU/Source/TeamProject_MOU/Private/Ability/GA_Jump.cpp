@@ -19,6 +19,11 @@ UGA_Jump::UGA_Jump()
 	FGameplayTag PushingTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Pushing"), false);
 	FGameplayTag ImmobileTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Encumbered.Immobile"), false);
 	FGameplayTag StunTag = FGameplayTag::RequestGameplayTag(FName("State.Stunned"), false);
+	FGameplayTag ElectricTag = FGameplayTag::RequestGameplayTag(FName("State.ElectricShock"), false);
+	FGameplayTag KnockdownTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Knockdown"), false);
+	FGameplayTag FallDownTag = FGameplayTag::RequestGameplayTag(FName("State.CC.FallDown"), false);
+	FGameplayTag FallFrontTag1 = FGameplayTag::RequestGameplayTag(FName("State.CC.FallFront"), false);
+	FGameplayTag FallFrontTag2 = FGameplayTag::RequestGameplayTag(FName("State.Player.FallFront"), false);
 	FGameplayTag HeldTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Held"), false);
 	FGameplayTag GroggyTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Groggy"), false);
 	FGameplayTag DeadTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Dead"), false);
@@ -28,6 +33,11 @@ UGA_Jump::UGA_Jump()
 	if (PushingTag.IsValid()) BlockedTags.AddTag(PushingTag);
 	if (ImmobileTag.IsValid()) BlockedTags.AddTag(ImmobileTag);
 	if (StunTag.IsValid()) BlockedTags.AddTag(StunTag);
+	if (ElectricTag.IsValid()) BlockedTags.AddTag(ElectricTag);
+	if (KnockdownTag.IsValid()) BlockedTags.AddTag(KnockdownTag);
+	if (FallDownTag.IsValid()) BlockedTags.AddTag(FallDownTag);
+	if (FallFrontTag1.IsValid()) BlockedTags.AddTag(FallFrontTag1);
+	if (FallFrontTag2.IsValid()) BlockedTags.AddTag(FallFrontTag2);
 	if (HeldTag.IsValid()) BlockedTags.AddTag(HeldTag);
 	if (GroggyTag.IsValid()) BlockedTags.AddTag(GroggyTag);
 	if (DeadTag.IsValid()) BlockedTags.AddTag(DeadTag);

@@ -1,6 +1,9 @@
 #include "Base/ItemBase.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/InventoryComponent.h"
+#include "Engine/Texture2D.h"
 #include "Net/UnrealNetwork.h"
+#include "Player/MainCharacter.h"
 
 AItemBase::AItemBase()
 {
@@ -24,6 +27,17 @@ AItemBase::AItemBase()
 	MeshComponent->SetRenderCustomDepth(false);
 }
 
+void AItemBase::PostInitializeComponents()
+{
+	Super::PostInitializeComponents();
+
+	if (MeshComponent)
+	{
+		MeshComponent->SetNotifyRigidBodyCollision(true);
+		MeshComponent->OnComponentHit.AddDynamic(this, &AItemBase::OnItemHit);
+	}
+}
+
 void AItemBase::BeginPlay()
 {
 	Super::BeginPlay();
@@ -38,6 +52,7 @@ void AItemBase::BeginPlay()
 		MeshComponent->SetSimulatePhysics(true);
 		MeshComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 		MeshComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+		MeshComponent->SetNotifyRigidBodyCollision(true);
 		
 		// 에디터에 배치된 아이템이 바닥과 미세하게 겹쳐있을 경우, 캐릭터가 밟았을 때 파묻히는 물리 버그가 발생할 수 있습니다.
 		// 이를 방지하기 위해 위치를 살짝 위로 띄워 자연스럽게 떨어지도록 유도하고 물리 엔진을 깨웁니다.
@@ -55,6 +70,25 @@ void AItemBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetim
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(AItemBase, CurrentDurability);
+	DOREPLIFETIME(AItemBase, ItemIcon);
+}
+
+void AItemBase::OnRep_ItemIcon()
+{
+	// 슬롯 참조보다 아이콘이 늦게 복제된 경우에도 복원된 슬롯 UI를 갱신합니다.
+	AActor* InventoryOwner = GetOwner();
+	if (!InventoryOwner) InventoryOwner = GetAttachParentActor();
+	UInventoryComponent* Inventory = InventoryOwner
+		? InventoryOwner->FindComponentByClass<UInventoryComponent>() : nullptr;
+	if (!Inventory) return;
+
+	for (int32 SlotIndex = 0; SlotIndex < Inventory->InventorySlots.Num(); ++SlotIndex)
+	{
+		if (Inventory->InventorySlots[SlotIndex] == this)
+		{
+			Inventory->OnInventorySlotChanged.Broadcast(SlotIndex, this);
+		}
+	}
 }
 
 void AItemBase::OnRep_CurrentDurability()
@@ -109,6 +143,7 @@ void AItemBase::MulticastPickUp_Implementation(AActor* Picker)
 
 void AItemBase::PickUp_Implementation(AActor* Picker)
 {
+	bWasThrown = false;
 	LastOwner = Picker;
 	
 	// 물리 비활성화는 모든 클라이언트가 알아야 함
@@ -149,6 +184,7 @@ void AItemBase::MulticastDrop_Implementation(FVector DropLocation, AActor* Dropp
 
 void AItemBase::Drop_Implementation(FVector DropLocation, AActor* Dropper)
 {
+	bWasThrown = false;
 	MulticastDrop(DropLocation, Dropper);
 }
 
@@ -181,7 +217,57 @@ void AItemBase::MulticastThrow_Implementation(FVector ThrowVelocity, AActor* Thr
 
 void AItemBase::Throw_Implementation(FVector ThrowVelocity, AActor* Thrower)
 {
+	bWasThrown = true;
+	LastThrower = Thrower ? Thrower : LastOwner.Get();
 	MulticastThrow(ThrowVelocity, Thrower);
+}
+
+void AItemBase::OnItemHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
+{
+	// 충돌에 의한 게임플레이 판정(피격, 기절, 대미지)은 서버에서만 권위적으로 단일 처리 (중복 판정 방지)
+	if (!HasAuthority() || !OtherActor || OtherActor == this)
+	{
+		return;
+	}
+
+	// 던진 본인과의 즉각 충돌(자폭) 방지
+	if (OtherActor == LastThrower.Get())
+	{
+		return;
+	}
+
+	// 충돌 순간의 물리 속도(충격량)를 구함
+	float ImpactSpeed = HitComponent ? HitComponent->GetComponentVelocity().Size() : 0.0f;
+
+	// 플레이어(MainCharacter)와 부딪혔을 경우 피격/넉다운 처리
+	if (AMainCharacter* HitPlayer = Cast<AMainCharacter>(OtherActor))
+	{
+		// 던져졌거나 일정 속도(80 이상)로 플레이어에게 부딪혔을 때만 반응 (바닥에 멈춘 물체에 닿았을 때 오발동 방지)
+		if (bWasThrown || ImpactSpeed > 80.0f)
+		{
+			HandlePlayerHit(HitPlayer, ImpactSpeed);
+			bWasThrown = false;
+		}
+		return;
+	}
+
+	// 지면이나 벽 등 다른 물체에 부딪쳐 멈추면 던져짐 상태 해제
+	if (ImpactSpeed < 80.0f)
+	{
+		bWasThrown = false;
+	}
+}
+
+void AItemBase::HandlePlayerHit(AMainCharacter* HitPlayer, float ImpactSpeed)
+{
+	if (!HitPlayer)
+	{
+		return;
+	}
+
+	// 일반 아이템 기본 동작: 속도에 상관없이 피격(맞는) 애니메이션만 출력
+	HitPlayer->PlayHitReaction(0.5f);
+	UE_LOG(LogTemp, Log, TEXT("[%s] 일반 아이템 충돌! 피격 애니메이션 출력 (속도: %f)"), *GetName(), ImpactSpeed);
 }
 
 void AItemBase::OnUse_Implementation()
@@ -241,6 +327,7 @@ void AItemBase::OnUnequipped_Implementation(AActor* Equipper)
 void AItemBase::SaveItemToData_Implementation(FStoredItemInstanceData& OutData) const
 {
 	OutData.ItemClass = GetClass();
+	OutData.ItemIcon = ItemIcon;
 	OutData.Transform = GetActorTransform();
 	OutData.CurrentUseCount = CurrentUseCount;
 	OutData.CurrentDurability = CurrentDurability;
@@ -249,6 +336,11 @@ void AItemBase::SaveItemToData_Implementation(FStoredItemInstanceData& OutData) 
 
 void AItemBase::LoadItemFromData_Implementation(const FStoredItemInstanceData& InData)
 {
+	// 아이콘 필드가 없던 기존 데이터는 클래스 기본 아이콘을 유지합니다.
+	if (InData.ItemIcon)
+	{
+		ItemIcon = InData.ItemIcon;
+	}
 	CurrentUseCount = InData.CurrentUseCount;
 	CurrentDurability = InData.CurrentDurability;
 	SetActorTransform(InData.Transform);

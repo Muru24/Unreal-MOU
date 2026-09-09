@@ -48,10 +48,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Push")
 	bool bIsPushable = true;
 
+	// 일반 박스형 푸시 정렬(중심점 바라보기 등) 대신 자체 정렬/스냅 로직을 사용하는 기믹(휠 등) 여부
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Push")
+	bool bCustomPusherAlignment = false;
+
 	// 밀기/당기기에 필요한 최소 인원 수
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Push")
 	int32 RequiredPushers = 1;
 
+	// 던져진 이벤트 오브젝트에 맞아 넘어지는 최소 속도 기준 (기본 500.0f)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "EventObject|Combat")
+	float KnockdownThresholdSpeed = 500.0f;
+
+protected:
+	virtual void HandlePlayerHit(class AMainCharacter* HitPlayer, float ImpactSpeed) override;
+
+public:
 	// 디버그 라인으로 밀기 가능 거리 표시 여부
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Push|Debug")
 	bool bShowDebugPushDistance = false;
@@ -96,8 +108,8 @@ public:
 
 
 	// 밀기 모드 진입/해제 시 호출
-	void AddPusher(class AMainCharacter* Pusher);
-	void RemovePusher(class AMainCharacter* Pusher);
+	virtual void AddPusher(class AMainCharacter* Pusher);
+	virtual void RemovePusher(class AMainCharacter* Pusher);
 
 	// 푸셔들에게 상자 무게를 균등 분배하고 캐릭터 과적(속도)에 반영하는 함수
 	void UpdatePushersWeight();

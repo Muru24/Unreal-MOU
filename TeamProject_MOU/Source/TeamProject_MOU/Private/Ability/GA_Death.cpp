@@ -18,6 +18,7 @@ UGA_Death::UGA_Death()
 		FGameplayTagContainer AssetTagsContainer;
 		AssetTagsContainer.AddTag(DeadTag);
 		SetAssetTags(AssetTagsContainer);
+		ActivationOwnedTags.AddTag(DeadTag);
 	}
 
 	FGameplayTag SprintTag = FGameplayTag::RequestGameplayTag(FName("Ability.Player.Sprint"), false);

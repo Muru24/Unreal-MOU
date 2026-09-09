@@ -578,3 +578,24 @@ void AEventObjectBase::FallOffLedge()
 	SetPhysicsSimulateEnabled(true);
 }
 
+void AEventObjectBase::HandlePlayerHit(AMainCharacter* HitPlayer, float ImpactSpeed)
+{
+	if (!HitPlayer)
+	{
+		return;
+	}
+
+	// 500 이상: FallDown (Knockdown)
+	if (ImpactSpeed >= KnockdownThresholdSpeed)
+	{
+		HitPlayer->Knockdown();
+		UE_LOG(LogTemp, Warning, TEXT("[%s] 이벤트 오브젝트 고속 충돌(FallDown)! 속도: %f"), *GetName(), ImpactSpeed);
+	}
+	// 500 미만: 피격 애니메이션 출력
+	else
+	{
+		HitPlayer->PlayHitReaction(0.5f);
+		UE_LOG(LogTemp, Log, TEXT("[%s] 이벤트 오브젝트 저속 충돌(HitReaction)! 속도: %f"), *GetName(), ImpactSpeed);
+	}
+}
+

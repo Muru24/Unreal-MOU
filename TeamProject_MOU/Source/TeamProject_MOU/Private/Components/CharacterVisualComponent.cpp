@@ -7,6 +7,9 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "TimerManager.h"
+#include "NiagaraComponent.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraSystem.h"
 
 UCharacterVisualComponent::UCharacterVisualComponent()
 {
@@ -38,6 +41,13 @@ void UCharacterVisualComponent::EndPlay(const EEndPlayReason::Type EndPlayReason
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(TemporaryOverrideTimerHandle);
+	}
+
+	if (BodyNiagaraComponent)
+	{
+		BodyNiagaraComponent->Deactivate();
+		BodyNiagaraComponent->DestroyComponent();
+		BodyNiagaraComponent = nullptr;
 	}
 
 	Super::EndPlay(EndPlayReason);
@@ -155,6 +165,54 @@ void UCharacterVisualComponent::RefreshVisualState()
 
 	FCharacterVisualPreset BestPreset = ResolveHighestPriorityPreset();
 	ApplyPresetToMaterials(BestPreset);
+
+	// 특수 상태(사망/그로기) 나이아가라 이펙트 갱신
+	UNiagaraSystem* TargetNiagaraSystem = nullptr;
+	FName TargetSocketName = NAME_None;
+
+	if (VisualDataAsset)
+	{
+		FGameplayTagContainer ActiveTags;
+		if (OwnerCharacter.IsValid())
+		{
+			OwnerCharacter->GetOwnedGameplayTags(ActiveTags);
+			if (UStatusComponent* StatusComp = OwnerCharacter->GetStatusComponent())
+			{
+				ActiveTags.AppendTags(StatusComp->GetActiveStatusTags());
+			}
+
+			if (AMainCharacter* MainChar = Cast<AMainCharacter>(OwnerCharacter.Get()))
+			{
+				static const FGameplayTag DeadTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Dead"), false);
+				static const FGameplayTag GroggyTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Groggy"), false);
+
+				if (MainChar->bIsDead && DeadTag.IsValid())
+				{
+					ActiveTags.AddTag(DeadTag);
+				}
+				else if (MainChar->bIsGroggy && GroggyTag.IsValid())
+				{
+					ActiveTags.AddTag(GroggyTag);
+				}
+			}
+		}
+
+		static const FGameplayTag DeadTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Dead"), false);
+		static const FGameplayTag GroggyTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Groggy"), false);
+
+		if (DeadTag.IsValid() && ActiveTags.HasTag(DeadTag) && VisualDataAsset->DeathNiagaraEffect)
+		{
+			TargetNiagaraSystem = VisualDataAsset->DeathNiagaraEffect;
+			TargetSocketName = VisualDataAsset->StatusFXSocketName;
+		}
+		else if (GroggyTag.IsValid() && ActiveTags.HasTag(GroggyTag) && VisualDataAsset->GroggyNiagaraEffect)
+		{
+			TargetNiagaraSystem = VisualDataAsset->GroggyNiagaraEffect;
+			TargetSocketName = VisualDataAsset->StatusFXSocketName;
+		}
+	}
+
+	ApplyNiagaraEffect(TargetNiagaraSystem, TargetSocketName);
 }
 
 FCharacterVisualPreset UCharacterVisualComponent::ResolveHighestPriorityPreset() const
@@ -179,9 +237,21 @@ FCharacterVisualPreset UCharacterVisualComponent::ResolveHighestPriorityPreset()
 
 		if (AMainCharacter* MainChar = Cast<AMainCharacter>(OwnerCharacter.Get()))
 		{
-			if (MainChar->IsHoldingRevive())
+			static const FGameplayTag DeadTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Dead"), false);
+			static const FGameplayTag GroggyTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Groggy"), false);
+			static const FGameplayTag ReviveTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Reviving"), false);
+
+			if (MainChar->bIsDead && DeadTag.IsValid())
 			{
-				static const FGameplayTag ReviveTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Reviving"), false);
+				ActiveTags.AddTag(DeadTag);
+			}
+			else if (MainChar->bIsGroggy && GroggyTag.IsValid())
+			{
+				ActiveTags.AddTag(GroggyTag);
+			}
+
+			if (MainChar->IsHoldingRevive() && ReviveTag.IsValid())
+			{
 				ActiveTags.AddTag(ReviveTag);
 			}
 		}
@@ -250,6 +320,69 @@ void UCharacterVisualComponent::ApplyPresetToMaterials(const FCharacterVisualPre
 
 	CurrentPreset = Preset;
 	OnVisualPresetApplied.Broadcast(CurrentPreset);
+}
+
+void UCharacterVisualComponent::ApplyNiagaraEffect(UNiagaraSystem* NewSystem, FName SocketName)
+{
+	if (!OwnerCharacter.IsValid() || !OwnerCharacter->GetMesh())
+	{
+		return;
+	}
+
+	USkeletalMeshComponent* Mesh = OwnerCharacter->GetMesh();
+
+	if (!NewSystem)
+	{
+		if (BodyNiagaraComponent)
+		{
+			BodyNiagaraComponent->Deactivate();
+			BodyNiagaraComponent->SetVisibility(false);
+		}
+		return;
+	}
+
+	if (!BodyNiagaraComponent)
+	{
+		BodyNiagaraComponent = UNiagaraFunctionLibrary::SpawnSystemAttached(
+			NewSystem,
+			Mesh,
+			SocketName,
+			FVector::ZeroVector,
+			FRotator::ZeroRotator,
+			EAttachLocation::SnapToTarget,
+			false, // bAutoDestroy = false
+			true   // bAutoActivate = true
+		);
+	}
+	else
+	{
+		if (BodyNiagaraComponent->GetAttachSocketName() != SocketName)
+		{
+			BodyNiagaraComponent->AttachToComponent(
+				Mesh,
+				FAttachmentTransformRules::SnapToTargetIncludingScale,
+				SocketName
+			);
+		}
+
+		if (BodyNiagaraComponent->GetAsset() != NewSystem)
+		{
+			BodyNiagaraComponent->SetAsset(NewSystem);
+			BodyNiagaraComponent->ResetSystem();
+		}
+
+		BodyNiagaraComponent->SetVisibility(true);
+		BodyNiagaraComponent->Activate(true);
+	}
+
+	if (BodyNiagaraComponent)
+	{
+		// 나이아가라 시스템 내부에서 SkeletalMesh(몸체)를 참조하는 파라미터가 있을 경우 자동 바인딩
+		BodyNiagaraComponent->SetVariableObject(FName("SkeletalMesh"), Mesh);
+		BodyNiagaraComponent->SetVariableObject(FName("User.SkeletalMesh"), Mesh);
+		BodyNiagaraComponent->SetVariableObject(FName("Mesh"), Mesh);
+		BodyNiagaraComponent->SetVariableObject(FName("User.Mesh"), Mesh);
+	}
 }
 
 void UCharacterVisualComponent::ApplyCustomEmotion(int32 EmotionIndex, FLinearColor InColor, float Intensity)

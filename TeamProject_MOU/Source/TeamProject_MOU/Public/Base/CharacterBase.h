@@ -182,6 +182,8 @@ protected:
 public:
 	virtual void Tick(float DeltaTime) override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+	virtual void DoMove(float Right, float Forward) override;
+	virtual void DoJumpStart() override;
 
 	// IAbilitySystemInterface 구현: AbilitySystemComponent 반환
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;

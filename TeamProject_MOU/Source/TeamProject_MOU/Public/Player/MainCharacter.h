@@ -27,7 +27,13 @@ protected:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Mesh", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<USkeletalMeshComponent> FirstPersonShadowMesh;
+
 	void UpdateFirstPersonMeshVisibility();
+	void SetFirstPersonViewMode(bool bIsFirstPerson);
+
+	bool bIsCurrentViewFirstPerson = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
 	FVector FirstPersonCameraOffset = FVector::ZeroVector;
@@ -377,6 +383,9 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Abilities")
 	TSubclassOf<class UGA_Knockdown> KnockdownAbilityClass;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Abilities")
+	TSubclassOf<class UGA_HitReaction> HitReactionAbilityClass;
+
 	UPROPERTY(Transient)
 	FGameplayAbilitySpecHandle SprintAbilitySpecHandle;
 
@@ -406,6 +415,9 @@ public:
 
 	UPROPERTY(Transient)
 	FGameplayAbilitySpecHandle KnockdownAbilitySpecHandle;
+
+	UPROPERTY(Transient)
+	FGameplayAbilitySpecHandle HitReactionAbilitySpecHandle;
 
 protected:
 	virtual void HandleHealthChanged(const struct FOnAttributeChangeData& Data) override;
@@ -660,11 +672,14 @@ public:
 	void SetIsStunned(bool bNewStunned) { bIsStunned = bNewStunned; }
 
 public:
-	// 피격/가벼운 충격 시 표정 반응 재생 (서버/로컬 호출 지원)
+	// 피격/가벼운 충격 시 GA_HitReaction 발동 (서버/로컬 호출 지원)
 	UFUNCTION(BlueprintCallable, Category = "Player|Status")
 	void PlayHitReaction(float Duration = 0.5f);
 
-protected:
-	UFUNCTION(NetMulticast, Reliable)
-	void MulticastPlayHitReaction(float Duration);
+	UFUNCTION(Server, Reliable)
+	void ServerPlayHitReaction(float Duration = 0.5f);
+
+	// 피격 반응 발생 시 블루프린트에서 추가 연출을 넣을 수 있는 이벤트
+	UFUNCTION(BlueprintImplementableEvent, Category = "Player|Status")
+	void OnPlayHitReaction(float Duration);
 };
