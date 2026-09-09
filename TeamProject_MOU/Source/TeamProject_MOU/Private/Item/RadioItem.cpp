@@ -56,7 +56,18 @@ void ARadioItem::PlayCurrentTrack()
 		return;
 	}
 
-	AudioComponent->SetSound(Playlist[CurrentTrackIndex]);
+	USoundBase* DesiredSound = Playlist[CurrentTrackIndex];
+
+	// 이미 "같은 곡"을 재생 중이면 다시 Play하지 않는다.
+	// (Play()를 재호출하면 처음부터 리셋됨 → 바닥에서 재생 중인 라디오를 다시 집었을 때
+	//  곡이 초기화되던 버그 방지. 서버는 PickUp에서 직접 재생하고 bIsPlaying이 true→true라
+	//  클라 OnRep은 안 불려, 서버에서만 리셋되던 증상이었다)
+	if (AudioComponent->IsPlaying() && AudioComponent->GetSound() == DesiredSound)
+	{
+		return;
+	}
+
+	AudioComponent->SetSound(DesiredSound);
 	AudioComponent->Play();
 }
 
@@ -147,26 +158,23 @@ void ARadioItem::PickUp_Implementation(AActor* Picker)
 	}
 }
 
-// 놓기: 소유권 해제 + 재생 OFF.
+// 놓기: 소유권만 해제하고 재생은 유지한다(바닥에 놓아도 계속 나오는 스피커처럼).
+// 재생 중 그대로 두면 AudioComponent가 라디오 위치를 따라다니며 계속 재생된다.
 void ARadioItem::Drop_Implementation(FVector DropLocation, AActor* Dropper)
 {
 	if (HasAuthority())
 	{
 		SetOwner(nullptr);
-		bIsPlaying = false;
 	}
-	StopPlaying();
 	Super::Drop_Implementation(DropLocation, Dropper);
 }
 
-// 던지기: 소유권 해제 + 재생 OFF.
+// 던지기: 소유권만 해제하고 재생은 유지.
 void ARadioItem::Throw_Implementation(FVector ThrowVelocity, AActor* Thrower)
 {
 	if (HasAuthority())
 	{
 		SetOwner(nullptr);
-		bIsPlaying = false;
 	}
-	StopPlaying();
 	Super::Throw_Implementation(ThrowVelocity, Thrower);
 }
