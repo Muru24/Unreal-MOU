@@ -5,6 +5,7 @@
 #include "ItemSaveData.generated.h"
 
 class AItemBase;
+class UTexture2D;
 
 // 창고/배달 레벨 이동에서 아이템 액터 1개의 상태를 저장하는 데이터입니다.
 // 아이템 자식 클래스별 추가 정보는 ExtraSaveData에 별도 구조체로 붙입니다.
@@ -16,6 +17,10 @@ struct FStoredItemInstanceData
 	// 다시 스폰할 때 사용할 아이템 클래스입니다.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Storage")
 	TSubclassOf<AItemBase> ItemClass;
+
+	// 데이터 테이블 등에서 런타임에 지정한 아이콘도 레벨 이동 후 유지합니다.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Storage")
+	TObjectPtr<UTexture2D> ItemIcon = nullptr;
 
 	// 레벨에 실제 액터로 복원할 때 사용할 위치/회전/스케일 정보입니다.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Storage")
