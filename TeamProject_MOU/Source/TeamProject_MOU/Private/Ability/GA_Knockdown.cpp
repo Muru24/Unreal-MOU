@@ -20,6 +20,10 @@ UGA_Knockdown::UGA_Knockdown()
 	if (StunnedTag.IsValid()) AssetTagsContainer.AddTag(StunnedTag);
 	SetAssetTags(AssetTagsContainer);
 
+	// 어빌리티 실행 중 캐릭터에게 상태 태그 자동 부여 (모든 클라이언트로 자동 복제)
+	if (KnockdownTag.IsValid()) ActivationOwnedTags.AddTag(KnockdownTag);
+	if (StunnedTag.IsValid()) ActivationOwnedTags.AddTag(StunnedTag);
+
 	FGameplayTag DeadTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Dead"), false);
 	if (DeadTag.IsValid())
 	{

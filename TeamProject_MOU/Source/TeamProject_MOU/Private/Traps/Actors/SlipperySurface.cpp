@@ -1,17 +1,13 @@
 #include "Traps/Actors/SlipperySurface.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/BoxComponent.h"
-#include "NiagaraComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "Traps/Interfaces/TrapTargetInterface.h"
-#include "Net/UnrealNetwork.h"
-#include "TimerManager.h"
 
 ASlipperySurface::ASlipperySurface()
 {
 	PrimaryActorTick.bCanEverTick = false;
-	bReplicates = true;
+	bReplicates = false;
 
 	RootScene = CreateDefaultSubobject<USceneComponent>(TEXT("RootScene"));
 	SetRootComponent(RootScene);
@@ -24,17 +20,6 @@ ASlipperySurface::ASlipperySurface()
 	SlipperyVolume->InitBoxExtent(FVector(200.0f, 200.0f, 30.0f));
 	SlipperyVolume->SetCollisionProfileName(TEXT("OverlapAllDynamic"));
 	SlipperyVolume->SetGenerateOverlapEvents(true);
-
-	FireFX = CreateDefaultSubobject<UNiagaraComponent>(TEXT("FireFX"));
-	FireFX->SetupAttachment(SurfaceMesh);
-	FireFX->bAutoActivate = false;
-}
-
-void ASlipperySurface::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
-{
-	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-
-	DOREPLIFETIME(ASlipperySurface, bIsIgnited);
 }
 
 void ASlipperySurface::BeginPlay()
@@ -48,70 +33,20 @@ void ASlipperySurface::BeginPlay()
 	}
 }
 
-void ASlipperySurface::TriggerTrap_Implementation(AActor* InstigatorActor)
+void ASlipperySurface::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	if (bIsFlammable && !bIsIgnited)
+	// 액터 파괴 시 미끄러짐 상태였던 모든 캐릭터의 원래 무브먼트 복원
+	for (auto& Pair : OriginalFrictionMap)
 	{
-		IgniteSurface();
-	}
-}
-
-void ASlipperySurface::ResetTrap_Implementation()
-{
-	if (HasAuthority())
-	{
-		bIsIgnited = false;
-		if (GetWorld())
+		if (Pair.Key)
 		{
-			GetWorld()->GetTimerManager().ClearTimer(FireTimerHandle);
-		}
-		if (FireFX)
-		{
-			FireFX->Deactivate();
+			RestoreCharacterMovement(Pair.Key);
 		}
 	}
-}
+	OriginalFrictionMap.Empty();
+	OriginalBrakingMap.Empty();
 
-void ASlipperySurface::DisarmTrap_Implementation(AActor* Disarmer)
-{
-	ResetTrap_Implementation();
-}
-
-void ASlipperySurface::IgniteSurface()
-{
-	if (!HasAuthority() || !bIsFlammable || bIsIgnited)
-	{
-		return;
-	}
-
-	bIsIgnited = true;
-	OnRep_bIsIgnited();
-
-	if (GetWorld())
-	{
-		GetWorld()->GetTimerManager().SetTimer(
-			FireTimerHandle,
-			this,
-			&ASlipperySurface::ApplyFireDamageTick,
-			1.0f,
-			true
-		);
-	}
-}
-
-void ASlipperySurface::OnRep_bIsIgnited()
-{
-	if (FireFX)
-	{
-		if (bIsIgnited)
-		{
-			FireFX->Activate(true);
-		}
-		else
-		{
-			FireFX->Deactivate();
-		}
-	}
+	Super::EndPlay(EndPlayReason);
 }
 
 void ASlipperySurface::HandleSurfaceBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
@@ -125,8 +60,14 @@ void ASlipperySurface::HandleSurfaceBeginOverlap(UPrimitiveComponent* Overlapped
 	if (Character && Character->GetCharacterMovement())
 	{
 		UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement();
-		OriginalFrictionMap.Add(Character, MoveComp->GroundFriction);
-		OriginalBrakingMap.Add(Character, MoveComp->BrakingDecelerationWalking);
+		if (!OriginalFrictionMap.Contains(Character))
+		{
+			OriginalFrictionMap.Add(Character, MoveComp->GroundFriction);
+		}
+		if (!OriginalBrakingMap.Contains(Character))
+		{
+			OriginalBrakingMap.Add(Character, MoveComp->BrakingDecelerationWalking);
+		}
 
 		MoveComp->GroundFriction = SlipperyGroundFriction;
 		MoveComp->BrakingDecelerationWalking = SlipperyBrakingDeceleration;
@@ -140,11 +81,22 @@ void ASlipperySurface::HandleSurfaceEndOverlap(UPrimitiveComponent* OverlappedCo
 		return;
 	}
 
-	ACharacter* Character = Cast<ACharacter>(OtherActor);
-	if (Character && Character->GetCharacterMovement())
+	if (ACharacter* Character = Cast<ACharacter>(OtherActor))
 	{
-		UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement();
+		RestoreCharacterMovement(Character);
+	}
+}
 
+void ASlipperySurface::RestoreCharacterMovement(ACharacter* Character)
+{
+	if (!Character)
+	{
+		return;
+	}
+
+	UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement();
+	if (MoveComp)
+	{
 		if (float* OrigFriction = OriginalFrictionMap.Find(Character))
 		{
 			MoveComp->GroundFriction = *OrigFriction;
@@ -154,25 +106,6 @@ void ASlipperySurface::HandleSurfaceEndOverlap(UPrimitiveComponent* OverlappedCo
 		{
 			MoveComp->BrakingDecelerationWalking = *OrigBraking;
 			OriginalBrakingMap.Remove(Character);
-		}
-	}
-}
-
-void ASlipperySurface::ApplyFireDamageTick()
-{
-	if (!HasAuthority() || !bIsIgnited || !SlipperyVolume)
-	{
-		return;
-	}
-
-	TArray<AActor*> OverlappingActors;
-	SlipperyVolume->GetOverlappingActors(OverlappingActors);
-
-	for (AActor* Target : OverlappingActors)
-	{
-		if (Target && Target->GetClass()->ImplementsInterface(UTrapTargetInterface::StaticClass()))
-		{
-			ITrapTargetInterface::Execute_ApplyTrapDamage(Target, FireDamagePerSecond, this);
 		}
 	}
 }

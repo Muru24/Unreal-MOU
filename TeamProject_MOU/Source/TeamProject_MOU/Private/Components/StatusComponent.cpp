@@ -27,7 +27,12 @@ UStatusComponent::UStatusComponent()
 	{
 		TEXT("State.Stunned"),
 		TEXT("State.ElectricShock"),
+		TEXT("State.CC.Electric"),
 		TEXT("State.Knockdown"),
+		TEXT("State.Player.Knockdown"),
+		TEXT("State.CC.FallDown"),
+		TEXT("State.CC.FallFront"),
+		TEXT("State.Player.FallFront"),
 		TEXT("State.KnockedBack"),
 		TEXT("State.Primary.Stuned"),
 		TEXT("State.Held"),
@@ -313,19 +318,12 @@ void UStatusComponent::RemoveStatusTag(FGameplayTag Tag)
 
 bool UStatusComponent::CanMove() const
 {
-	static const FGameplayTag StunTag = FGameplayTag::RequestGameplayTag(FName("State.Primary.Stuned"), false);
-	static const FGameplayTag HeldTag = FGameplayTag::RequestGameplayTag(FName("State.Held"), false);
-	static const FGameplayTag KnockedTag = FGameplayTag::RequestGameplayTag(FName("State.KnockedBack"), false);
-
-	return !HasStatusTag(StunTag) && !HasStatusTag(HeldTag) && !HasStatusTag(KnockedTag);
+	return GetMovementBlockingCCTagCount() == 0;
 }
 
 bool UStatusComponent::CanAct() const
 {
-	static const FGameplayTag StunTag = FGameplayTag::RequestGameplayTag(FName("State.Primary.Stuned"), false);
-	static const FGameplayTag HeldTag = FGameplayTag::RequestGameplayTag(FName("State.Held"), false);
-
-	return !HasStatusTag(StunTag) && !HasStatusTag(HeldTag);
+	return GetMovementBlockingCCTagCount() == 0;
 }
 
 bool UStatusComponent::CanSprint() const

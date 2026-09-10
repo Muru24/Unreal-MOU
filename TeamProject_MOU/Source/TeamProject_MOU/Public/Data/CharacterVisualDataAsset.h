@@ -20,6 +20,8 @@ enum class EWeightGrade : uint8
 	Overload3      UMETA(DisplayName = "초과 3 (150%~)")
 };
 
+class UNiagaraSystem;
+
 /**
  * 표정 MI 인덱스, LED 색상, 발광 강도, 상태 우선순위를 통합 관리하는 비주얼 프리셋 구조체
  */
@@ -89,6 +91,22 @@ public:
 	// ---------------------------------------------------------
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual|Default")
 	FCharacterVisualPreset DefaultPreset;
+
+	// ---------------------------------------------------------
+	// [특수 상태(그로기/사망) 전용 나이아가라 이펙트 슬롯]
+	// StatusTagPresets의 프리셋에 NiagaraEffect가 지정되지 않았을 때 기본값으로 자동 적용됩니다.
+	// ---------------------------------------------------------
+	// 그로기(Groggy) 상태 시 몸에 두를 나이아가라 이펙트
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual|StatusFX")
+	TObjectPtr<UNiagaraSystem> GroggyNiagaraEffect = nullptr;
+
+	// 사망(Dead) 상태 시 몸에 두를 나이아가라 이펙트
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual|StatusFX")
+	TObjectPtr<UNiagaraSystem> DeathNiagaraEffect = nullptr;
+
+	// 특수 상태 나이아가라 부착 소켓 이름 (기본값: None -> 메시 원점/몸통)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual|StatusFX")
+	FName StatusFXSocketName = NAME_None;
 
 	// ---------------------------------------------------------
 	// [머티리얼 파라미터 이름 설정]

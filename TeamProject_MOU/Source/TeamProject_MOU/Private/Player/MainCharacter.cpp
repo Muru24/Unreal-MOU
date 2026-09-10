@@ -20,6 +20,7 @@
 #include "Components/InventoryComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Components/PointLightComponent.h"
 #include "Ability/GA_Sprint.h"
 #include "Ability/GA_PushObject.h"
@@ -36,6 +37,7 @@
 #include "Ability/GA_Groggy.h"
 #include "Ability/GA_Death.h"
 #include "Ability/GA_Knockdown.h"
+#include "Ability/GA_HitReaction.h"
 
 AMainCharacter::AMainCharacter()
 {
@@ -91,11 +93,62 @@ AMainCharacter::AMainCharacter()
 		GetFollowCamera()->bUsePawnControlRotation = true;
 		GetFollowCamera()->SetFieldOfView(90.0f);
 	}
+
+	// 1인칭 전신 그림자 및 루멘 반사용 프록시 메시 생성
+	FirstPersonShadowMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("FirstPersonShadowMesh"));
+	FirstPersonShadowMesh->SetupAttachment(GetMesh());
+	FirstPersonShadowMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	FirstPersonShadowMesh->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
+	FirstPersonShadowMesh->SetGenerateOverlapEvents(false);
+	FirstPersonShadowMesh->CastShadow = true;
+	FirstPersonShadowMesh->bCastHiddenShadow = true;
+	FirstPersonShadowMesh->SetOwnerNoSee(true);
+	FirstPersonShadowMesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 }
 
 void AMainCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// 1인칭 그림자/반사용 프록시 메시 설정 (로컬 플레이어만 활성화)
+	if (IsLocallyControlled())
+	{
+		// 라이브 코딩 시 생성자 컴포넌트 누락 방지를 위해 런타임 동적 생성 보장
+		if (!FirstPersonShadowMesh && GetMesh())
+		{
+			FirstPersonShadowMesh = NewObject<USkeletalMeshComponent>(this, TEXT("FirstPersonShadowMesh_Runtime"));
+			FirstPersonShadowMesh->RegisterComponent();
+			FirstPersonShadowMesh->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetIncludingScale);
+		}
+
+		if (FirstPersonShadowMesh && GetMesh())
+		{
+			FirstPersonShadowMesh->SetSkeletalMeshAsset(GetMesh()->GetSkeletalMeshAsset());
+			FirstPersonShadowMesh->SetLeaderPoseComponent(GetMesh(), true);
+			for (int32 i = 0; i < GetMesh()->GetNumMaterials(); ++i)
+			{
+				FirstPersonShadowMesh->SetMaterial(i, GetMesh()->GetMaterial(i));
+			}
+			FirstPersonShadowMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			FirstPersonShadowMesh->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
+			FirstPersonShadowMesh->SetGenerateOverlapEvents(false);
+			FirstPersonShadowMesh->SetOwnerNoSee(true);
+			FirstPersonShadowMesh->SetCastHiddenShadow(true);
+			FirstPersonShadowMesh->CastShadow = true;
+			FirstPersonShadowMesh->bCastDynamicShadow = true;
+			FirstPersonShadowMesh->bAffectDistanceFieldLighting = true;
+			FirstPersonShadowMesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+			FirstPersonShadowMesh->SetVisibility(true);
+		}
+	}
+	else
+	{
+		if (FirstPersonShadowMesh)
+		{
+			FirstPersonShadowMesh->SetVisibility(false);
+			FirstPersonShadowMesh->DestroyComponent();
+		}
+	}
 
 	UpdateFirstPersonMeshVisibility();
 
@@ -151,6 +204,9 @@ void AMainCharacter::BeginPlay()
 
 		TSubclassOf<UGameplayAbility> KnockdownClass = KnockdownAbilityClass ? KnockdownAbilityClass : TSubclassOf<UGameplayAbility>(UGA_Knockdown::StaticClass());
 		KnockdownAbilitySpecHandle = AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(KnockdownClass, 1));
+
+		TSubclassOf<UGameplayAbility> HitReactionClass = HitReactionAbilityClass ? HitReactionAbilityClass : TSubclassOf<UGameplayAbility>(UGA_HitReaction::StaticClass());
+		HitReactionAbilitySpecHandle = AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(HitReactionClass, 1));
 	}
 
 	if (USkeletalMeshComponent* SkelMesh = GetMesh())
@@ -198,6 +254,78 @@ void AMainCharacter::OnRep_PlayerState()
 	UpdateFirstPersonMeshVisibility();
 }
 
+void AMainCharacter::SetFirstPersonViewMode(bool bIsFirstPerson)
+{
+	if (!IsLocallyControlled())
+	{
+		return;
+	}
+
+	if (bIsFirstPerson)
+	{
+		// [1인칭 시점]
+		// 1) 메인 메시(몸체) 표시하되 머리(neck)만 숨겨 1인칭 시야 확보
+		if (USkeletalMeshComponent* SkelMesh = GetMesh())
+		{
+			SkelMesh->SetVisibility(true, true);
+			SkelMesh->HideBoneByName(FName("neck"), PBO_None);
+			// 메인 메시의 그림자는 꺼서 '머리 잘린 그림자'가 바닥에 찍히는 간섭을 원천 차단
+			SkelMesh->SetCastShadow(false);
+			SkelMesh->bCastHiddenShadow = false;
+		}
+
+		// 2) 눈, 입 부착물 복원 (내 시야에서는 안 보이게 SetOwnerNoSee)
+		TArray<UStaticMeshComponent*> StaticMeshes;
+		GetComponents<UStaticMeshComponent>(StaticMeshes);
+		for (UStaticMeshComponent* SM : StaticMeshes)
+		{
+			if (SM && (SM->GetName().Contains(TEXT("Eye")) || SM->GetName().Contains(TEXT("Mouth"))))
+			{
+				SM->SetVisibility(true);
+				SM->SetOwnerNoSee(true);
+				SM->SetCastHiddenShadow(false);
+			}
+		}
+
+		// 3) 온전한 머리를 가진 섀도우 메시가 그림자를 독점 투영
+		if (FirstPersonShadowMesh)
+		{
+			FirstPersonShadowMesh->SetVisibility(true);
+			FirstPersonShadowMesh->SetOwnerNoSee(true);
+			FirstPersonShadowMesh->SetCastShadow(true);
+			FirstPersonShadowMesh->bCastHiddenShadow = true;
+		}
+	}
+	else
+	{
+		// [외부 카메라 시점: NPC 대화, 3인칭, 컷씬 등]
+		// 플레이어의 머리뿐만 아니라 "몸 전체(메시, 자식 컴포넌트, 눈/입 등)"를 완전히 숨김!
+		if (USkeletalMeshComponent* SkelMesh = GetMesh())
+		{
+			SkelMesh->SetVisibility(false, true); // true: 모든 자식 컴포넌트까지 전파하여 몸 전체 숨김
+			SkelMesh->SetCastShadow(false);
+			SkelMesh->bCastHiddenShadow = false;
+		}
+
+		TArray<UStaticMeshComponent*> StaticMeshes;
+		GetComponents<UStaticMeshComponent>(StaticMeshes);
+		for (UStaticMeshComponent* SM : StaticMeshes)
+		{
+			if (SM)
+			{
+				SM->SetVisibility(false);
+			}
+		}
+
+		if (FirstPersonShadowMesh)
+		{
+			FirstPersonShadowMesh->SetVisibility(false);
+			FirstPersonShadowMesh->SetCastShadow(false);
+			FirstPersonShadowMesh->bCastHiddenShadow = false;
+		}
+	}
+}
+
 void AMainCharacter::UpdateFirstPersonMeshVisibility()
 {
 	if (IsLocallyControlled())
@@ -205,8 +333,6 @@ void AMainCharacter::UpdateFirstPersonMeshVisibility()
 		if (USkeletalMeshComponent* SkelMesh = GetMesh())
 		{
 			SkelMesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
-			SkelMesh->HideBoneByName(FName("neck"), PBO_None);
-			SkelMesh->bCastHiddenShadow = true;
 		}
 
 		if (GetFollowCamera() && GetMesh())
@@ -236,15 +362,8 @@ void AMainCharacter::UpdateFirstPersonMeshVisibility()
 			}
 		}
 
-		TArray<UStaticMeshComponent*> StaticMeshes;
-		GetComponents<UStaticMeshComponent>(StaticMeshes);
-		for (UStaticMeshComponent* SM : StaticMeshes)
-		{
-			if (SM && (SM->GetName().Contains(TEXT("Eye")) || SM->GetName().Contains(TEXT("Mouth"))))
-			{
-				SM->SetOwnerNoSee(true);
-			}
-		}
+		// 초기 가시성 적용: 1인칭 상태 적용
+		SetFirstPersonViewMode(bIsCurrentViewFirstPerson);
 
 		if (APlayerController* PC = Cast<APlayerController>(GetController()))
 		{
@@ -260,6 +379,31 @@ void AMainCharacter::UpdateFirstPersonMeshVisibility()
 void AMainCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+
+	// [카메라 시점 변경 실시간 감지: 1인칭 vs 외부 카메라(NPC 대화, 3인칭, 컷씬 등)]
+	if (IsLocallyControlled())
+	{
+		APlayerController* PC = Cast<APlayerController>(GetController());
+		bool bShouldBeFirstPerson = true;
+		if (PC)
+		{
+			AActor* CurrentViewTarget = PC->GetViewTarget();
+			if (CurrentViewTarget && CurrentViewTarget != this)
+			{
+				bShouldBeFirstPerson = false;
+			}
+			else if (GetFollowCamera() && !GetFollowCamera()->IsActive())
+			{
+				bShouldBeFirstPerson = false;
+			}
+		}
+
+		if (bShouldBeFirstPerson != bIsCurrentViewFirstPerson)
+		{
+			bIsCurrentViewFirstPerson = bShouldBeFirstPerson;
+			SetFirstPersonViewMode(bIsCurrentViewFirstPerson);
+		}
+	}
 
 	// [달리기 정지 감지] 방향키를 떼어 가속이 멈춘 경우 즉시 달리기 해제 (대기 모션 복귀)
 	if (bIsSprinting && GetCharacterMovement() && GetCharacterMovement()->GetCurrentAcceleration().IsNearlyZero())
@@ -339,40 +483,74 @@ void AMainCharacter::Tick(float DeltaTime)
 	if (bIsPushingMode && CurrentPushedObject && (IsLocallyControlled() || HasAuthority()))
 	{
 		AEventObjectBase* EventObj = Cast<AEventObjectBase>(CurrentPushedObject);
+		bool bIsCustomAlignment = EventObj && EventObj->bCustomPusherAlignment;
 
-		// 1. 손 앵커 포인트 기준 거리 이탈 검사 (상자가 이동하면서 원래 잡았던 손 위치에서 110cm 이상 멀어지면 자동 밀기 해제)
-		FVector WorldAnchor = CurrentPushedObject->GetActorTransform().TransformPosition(PushLocalAnchor);
-		float Dist2D = FVector::Dist2D(GetActorLocation(), WorldAnchor);
-		float DetachLimit = EventObj ? EventObj->PushDetachDistance : 110.0f;
-		if (Dist2D > DetachLimit)
+		// 1. 거리 이탈 검사
+		if (!bIsCustomAlignment)
 		{
-			StopPushMode();
-			return;
+			// 일반 상자: 상자 로컬 공간 기준 손 접촉 앵커 거리 검사
+			FVector WorldAnchor = CurrentPushedObject->GetActorTransform().TransformPosition(PushLocalAnchor);
+			float Dist2D = FVector::Dist2D(GetActorLocation(), WorldAnchor);
+			float DetachLimit = EventObj ? EventObj->PushDetachDistance : 110.0f;
+			if (Dist2D > DetachLimit)
+			{
+				StopPushMode();
+				return;
+			}
+		}
+		else
+		{
+			// 회전형 기믹(SluiceWheel 등): 휠 중심과의 수평 거리 검사 (네트워크 핑/지연으로 인한 손 앵커 오차 해제 차단)
+			float DistToCenter = FVector::Dist2D(GetActorLocation(), CurrentPushedObject->GetActorLocation());
+			float MaxLimit = EventObj ? (EventObj->MaxPushDistance + 100.0f) : 450.0f;
+			if (DistToCenter > MaxLimit)
+			{
+				StopPushMode();
+				return;
+			}
 		}
 
 		FVector CurrentLoc = GetActorLocation();
 
-		// 2. 상자가 이동 불가능한 상태(인원 부족/입력 불일치 등)일 때 캐릭터가 앞으로 나아가지 못하도록 이전 위치로 고정
-		bool bCanMove = EventObj ? EventObj->IsReadyToMove() : false;
-		if (!bCanMove)
+		if (bIsCustomAlignment)
 		{
-			SetActorLocation(LastCharacterLocation, false);
-			CurrentLoc = LastCharacterLocation;
+			if (HasAuthority())
+			{
+				// 서버: 휠 회전 궤적 위치를 기준으로 고정하여 이동 컴포넌트의 원심력 이탈 차단
+				SetActorLocation(LastCharacterLocation, false);
+				CurrentLoc = LastCharacterLocation;
+			}
+			else
+			{
+				// 클라이언트: 서버의 위치 복제와 회전 이동을 자연스럽게 수신하여 동기화
+				CurrentLoc = GetActorLocation();
+				LastCharacterLocation = CurrentLoc;
+			}
 		}
 		else
 		{
-			// [단방향 메쉬 파고들기 차단] 캐릭터가 상자 중심 방향으로 파고들었을 때만 상자 표면 쪽으로 밀어냄 (상자가 멀어질 때는 절대 끌어당기지 않음)
-			FVector BoxCenter = CurrentPushedObject->GetComponentsBoundingBox().GetCenter();
-			FVector ToBox = BoxCenter - CurrentLoc;
-			ToBox.Z = 0.0f;
-			float DistToCenter = ToBox.Size();
-
-			if (DistToCenter < PushInitialDistToBox && PushInitialDistToBox > 0.0f && !ToBox.IsNearlyZero())
+			// 2. 상자가 이동 불가능한 상태(인원 부족/입력 불일치 등)일 때 캐릭터가 앞으로 나아가지 못하도록 이전 위치로 고정
+			bool bCanMove = EventObj ? EventObj->IsReadyToMove() : false;
+			if (!bCanMove)
 			{
-				FVector ClampedLoc = BoxCenter - (ToBox / DistToCenter) * PushInitialDistToBox;
-				ClampedLoc.Z = CurrentLoc.Z;
-				SetActorLocation(ClampedLoc, false);
-				CurrentLoc = ClampedLoc;
+				SetActorLocation(LastCharacterLocation, false);
+				CurrentLoc = LastCharacterLocation;
+			}
+			else
+			{
+				// [단방향 메쉬 파고들기 차단] 캐릭터가 상자 중심 방향으로 파고들었을 때만 상자 표면 쪽으로 밀어냄 (상자가 멀어질 때는 절대 끌어당기지 않음)
+				FVector BoxCenter = CurrentPushedObject->GetComponentsBoundingBox().GetCenter();
+				FVector ToBox = BoxCenter - CurrentLoc;
+				ToBox.Z = 0.0f;
+				float DistToCenter = ToBox.Size();
+
+				if (DistToCenter < PushInitialDistToBox && PushInitialDistToBox > 0.0f && !ToBox.IsNearlyZero())
+				{
+					FVector ClampedLoc = BoxCenter - (ToBox / DistToCenter) * PushInitialDistToBox;
+					ClampedLoc.Z = CurrentLoc.Z;
+					SetActorLocation(ClampedLoc, false);
+					CurrentLoc = ClampedLoc;
+				}
 			}
 		}
 
@@ -1674,27 +1852,29 @@ void AMainCharacter::ServerKnockdown_Implementation()
 
 void AMainCharacter::PlayHitReaction(float Duration)
 {
-	if (HasAuthority())
+	if (bIsDead || bIsGroggy || bIsStunned)
 	{
-		MulticastPlayHitReaction(Duration);
+		return;
 	}
-	else
+
+	if (!HasAuthority())
 	{
-		if (VisualComponent)
-		{
-			static const FGameplayTag HitTag = FGameplayTag::RequestGameplayTag(FName("State.Player.HitReaction"), false);
-			VisualComponent->SetTagTemporaryOverride(HitTag, Duration);
-		}
+		ServerPlayHitReaction(Duration);
+		return;
 	}
+
+	// GAS GA_HitReaction 어빌리티 실행 (내부에서 50:50 몽타주 선택 및 복제 재생, 표정 처리)
+	if (AbilitySystemComponent && HitReactionAbilitySpecHandle.IsValid())
+	{
+		AbilitySystemComponent->TryActivateAbility(HitReactionAbilitySpecHandle);
+	}
+
+	OnPlayHitReaction(Duration);
 }
 
-void AMainCharacter::MulticastPlayHitReaction_Implementation(float Duration)
+void AMainCharacter::ServerPlayHitReaction_Implementation(float Duration)
 {
-	if (VisualComponent)
-	{
-		static const FGameplayTag HitTag = FGameplayTag::RequestGameplayTag(FName("State.Player.HitReaction"), false);
-		VisualComponent->SetTagTemporaryOverride(HitTag, Duration);
-	}
+	PlayHitReaction(Duration);
 }
 
 // ---------------------------------------------------------
@@ -1966,28 +2146,34 @@ void AMainCharacter::StartPushMode(AActor* TargetObject)
 		EventObj->AddPusher(this);
 	}
 
-	// 캐릭터 정렬 연출: 거리는 그대로 유지하되, 대상(박스)을 바라보도록 회전만 수행
-	FVector BoxCenter = TargetObject->GetComponentsBoundingBox().GetCenter();
-	FVector Dir = BoxCenter - GetActorLocation();
-	Dir.Z = 0.0f;
-	Dir.Normalize();
-	SetActorRotation(Dir.Rotation());
-	LockedPushDirection = Dir;
+	AEventObjectBase* EventObjBase = Cast<AEventObjectBase>(CurrentPushedObject);
+	bool bUseCustomAlignment = EventObjBase && EventObjBase->bCustomPusherAlignment;
 
-	// 상자 중심점과의 초기 수평 거리 기록 (메쉬 관통 방지용)
-	PushInitialDistToBox = FVector::Dist2D(GetActorLocation(), BoxCenter);
-
-	// 상자 로컬 공간 기준 손 접촉 앵커 위치 기록 (거리 이탈 감지용)
-	if (TargetObject)
+	if (!bUseCustomAlignment)
 	{
-		PushLocalAnchor = TargetObject->GetActorTransform().InverseTransformPosition(GetActorLocation());
+		// 캐릭터 정렬 연출: 거리는 그대로 유지하되, 대상(박스)을 바라보도록 회전만 수행
+		FVector BoxCenter = TargetObject->GetComponentsBoundingBox().GetCenter();
+		FVector Dir = BoxCenter - GetActorLocation();
+		Dir.Z = 0.0f;
+		Dir.Normalize();
+		SetActorRotation(Dir.Rotation());
+		LockedPushDirection = Dir;
+
+		// 상자 중심점과의 초기 수평 거리 기록 (메쉬 관통 방지용)
+		PushInitialDistToBox = FVector::Dist2D(GetActorLocation(), BoxCenter);
+
+		// 상자 로컬 공간 기준 손 접촉 앵커 위치 기록 (거리 이탈 감지용)
+		if (TargetObject)
+		{
+			PushLocalAnchor = TargetObject->GetActorTransform().InverseTransformPosition(GetActorLocation());
+		}
 	}
 
 	// 밀기 시작 시 로컬 카메라 방향도 밀기 방향 기준 에임오프셋 범위 내로 즉시 보정
 	if (IsLocallyControlled() && GetController())
 	{
 		FRotator ControlRot = GetController()->GetControlRotation();
-		float ForwardYaw = Dir.Rotation().Yaw;
+		float ForwardYaw = LockedPushDirection.Rotation().Yaw;
 		float DeltaYaw = FRotator::NormalizeAxis(ControlRot.Yaw - ForwardYaw);
 		if (FMath::Abs(DeltaYaw) > PushCameraYawLimit)
 		{
