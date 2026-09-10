@@ -29,6 +29,12 @@ public class TeamProject_MOU : ModuleRules
             "Sockets",
             "Networking",
 
+            // --- 탑승형 차량 (Chaos Vehicle) ---------------------------
+            // AWheeledVehiclePawn / UChaosWheeledVehicleMovementComponent 를 쓴다.
+            // PhysicsCore 는 물리 바디/무게중심 접근에 필요하다.
+            "ChaosVehicles",
+            "PhysicsCore",
+
             // MOU lake/river actors derive from classes provided by the Water plugin.
             // Without the module dependency UBT does not expose the plugin's Public
             // include directory, so WaterBodyLakeActor.h and related headers fail.

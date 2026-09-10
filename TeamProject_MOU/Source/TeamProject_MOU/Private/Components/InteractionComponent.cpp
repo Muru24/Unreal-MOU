@@ -2,6 +2,7 @@
 #include "Interfaces/InteractableInterface.h"
 #include "Interfaces/PushableInterface.h"
 #include "Base/EventObjectBase.h"
+#include "Item/ItemDrone.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/PlayerController.h"
 #include "Engine/World.h"
@@ -53,6 +54,25 @@ void UInteractionComponent::PerformInteraction()
 	if (FocusedActor->Implements<UInteractableInterface>())
 	{
 		IInteractableInterface::Execute_Interact(FocusedActor, OwnerActor);
+
+		// 배치된 아이템 드론의 맡기기/회수는 서버에서 상태가 바뀌어야 한다.
+		// 로컬 클라에서는 위 Interact가 아무 상태도 바꾸지 않으므로(서버 권위), 서버에서 재실행하도록 위임한다.
+		// (드론 자신의 Server RPC는 배치자 소유에 묶여 다른 클라가 못 쓰지만, 이 컴포넌트는 상호작용하는
+		//  플레이어 소유라 누가 배치했든 서버에 도달한다)
+		if (AActor* OwnerActorPtr = GetOwner())
+		{
+			if (!OwnerActorPtr->HasAuthority())
+			{
+				if (const AItemDrone* Drone = Cast<AItemDrone>(FocusedActor))
+				{
+					if (Drone->bIsDeployed)
+					{
+						ServerRunInteract(FocusedActor);
+					}
+				}
+			}
+		}
+
 		OnInteractExecuted.Broadcast(FocusedActor);
 	}
 	// 3. 블루프린트 상호작용 액터 (퀘스트 NPC 등)
@@ -61,6 +81,24 @@ void UInteractionComponent::PerformInteraction()
 		// C++의 불안전한 ProcessEvent 직접 호출을 제거하고,
 		// OnInteractExecuted를 통해 BP_EmoPlayer의 표준 BPI_Interaction으로 안전하게 1회 전달
 		OnInteractExecuted.Broadcast(FocusedActor);
+	}
+}
+
+void UInteractionComponent::ServerRunInteract_Implementation(AActor* TargetActor)
+{
+	AActor* OwnerActor = GetOwner();
+	if (!OwnerActor || !TargetActor)
+	{
+		return;
+	}
+
+	// 서버에서 다시 CanInteract로 유효성 확인 후 Interact 실행 (클라 값 신뢰하지 않음).
+	if (TargetActor->Implements<UInteractableInterface>())
+	{
+		if (IInteractableInterface::Execute_CanInteract(TargetActor, OwnerActor))
+		{
+			IInteractableInterface::Execute_Interact(TargetActor, OwnerActor);
+		}
 	}
 }
 
