@@ -39,6 +39,27 @@ public:
 	UFUNCTION(Client, Reliable)
 	void ClientWarehouseDeliverySaveCompleted(bool bSucceeded);
 
+	// ---------------------------------------------------------
+	// [차량 탑승 입력 전환] - 차량(AVehicleBase)이 탑승/하차 시 호출한다.
+	// 캐릭터용 IMC(DefaultMappingContexts)를 걷어내고 차량용 IMC 하나만 남긴다.
+	// 이 프로젝트는 입력 IMC를 컨트롤러가 관리하므로, 차량 입력 전환도 여기서 처리한다.
+	// ---------------------------------------------------------
+
+	// 차량 운전 모드로 전환: 캐릭터 IMC 제거 + 지정한 차량 IMC 추가.
+	UFUNCTION(BlueprintCallable, Category = "Input|Vehicle")
+	void SwitchToVehicleInput(UInputMappingContext* DrivingContext);
+
+	// 차량 운전 모드 해제: 차량 IMC 제거 + 캐릭터 IMC(DefaultMappingContexts) 복원.
+	UFUNCTION(BlueprintCallable, Category = "Input|Vehicle")
+	void RestoreCharacterInput();
+
+private:
+	// SwitchToVehicleInput 으로 추가한 차량 IMC. RestoreCharacterInput 에서 제거하려고 기억한다.
+	UPROPERTY(Transient)
+	TObjectPtr<UInputMappingContext> ActiveVehicleContext;
+
+public:
+
 protected:
 	/**
 	 * 음성 송수신 창구 (VOICE_INTEGRATION.md 6절).

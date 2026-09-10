@@ -1,7 +1,9 @@
 #include "Item/VehicleBase.h"
 
 #include "Base/CharacterBase.h"
+#include "TeamProject_MOUPlayerController.h"
 #include "ChaosVehicleMovementComponent.h"
+#include "ChaosWheeledVehicleMovementComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -19,16 +21,21 @@ AVehicleBase::AVehicleBase()
 {
 	PrimaryActorTick.bCanEverTick = true;
 
-	// 운전 카메라 붐: 차량 메시에 붙어 차량 방향을 그대로 따라간다(정면 고정).
-	// bUsePawnControlRotation 을 끄면 마우스로 카메라를 돌릴 수 없어 "정면 고정"이 된다.
+	// 운전 카메라 붐: 차량 뒤 위쪽에서 차를 내려다보는 3인칭 시점.
+	// 차량 방향을 그대로 따라가고(정면 고정), 마우스로는 못 돌린다.
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(GetMesh());
-	CameraBoom->TargetArmLength = 650.0f;
-	CameraBoom->SocketOffset = FVector(0.0f, 0.0f, 150.0f);
+	// 붐 시작점을 차체 위로 올린다(메시 원점이 바닥이라 안 올리면 카메라가 차 안에 묻힌다).
+	CameraBoom->SetRelativeLocation(FVector(0.0f, 0.0f, 200.0f));
+	// 붐을 아래로 15도 기울여 차를 위에서 내려다본다.
+	CameraBoom->SetRelativeRotation(FRotator(-15.0f, 0.0f, 0.0f));
+	CameraBoom->TargetArmLength = 800.0f;
 	CameraBoom->bUsePawnControlRotation = false;
 	CameraBoom->bInheritPitch = false;
 	CameraBoom->bInheritRoll = false;
 	CameraBoom->bInheritYaw = true;
+	// 붐이 벽/지면 콜리전에 말려 들어가 카메라가 튀는 것을 막는다.
+	CameraBoom->bDoCollisionTest = false;
 
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
@@ -57,6 +64,15 @@ void AVehicleBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLife
 void AVehicleBase::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// [임시 진단] 무브먼트/메시 물리 연결 상태 확인.
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	UChaosVehicleMovementComponent* Movement = GetVehicleMovementComponent();
+	UE_LOG(LogTemp, Warning, TEXT("[VEHICLE] BeginPlay: Mesh=%s, SimPhysics=%d, Movement=%s, UpdatedComp=%s"),
+		MeshComp ? *MeshComp->GetName() : TEXT("NULL"),
+		(MeshComp && MeshComp->IsSimulatingPhysics()) ? 1 : 0,
+		Movement ? *Movement->GetName() : TEXT("NULL"),
+		(Movement && Movement->UpdatedComponent) ? *Movement->UpdatedComponent->GetName() : TEXT("NULL"));
 }
 
 // [VEHICLE-002] 좌석 복제 콜백: 클라이언트에서 좌석 변화 연출 훅 호출
@@ -243,12 +259,6 @@ void AVehicleBase::SeatCharacter(ACharacterBase* Character, int32 SeatIndex)
 	FVehicleSeat& Seat = Seats[SeatIndex];
 	Seat.Occupant = Character;
 
-	// [임시 진단 로그] 어느 좌석에 탔고 운전석 플래그/컨트롤러 상태가 어떤지 확인용.
-	UE_LOG(LogTemp, Warning, TEXT("[VEHICLE] SeatCharacter: SeatIndex=%d, bIsDriverSeat=%d, Controller=%s"),
-		SeatIndex,
-		Seat.bIsDriverSeat ? 1 : 0,
-		Character->GetController() ? *Character->GetController()->GetName() : TEXT("NULL"));
-
 	// 모든 머신에서 캐릭터를 좌석 소켓에 붙이고 이동/충돌을 잠근다.
 	MulticastAttachOccupant(Character, SeatIndex);
 
@@ -263,17 +273,10 @@ void AVehicleBase::SeatCharacter(ACharacterBase* Character, int32 SeatIndex)
 
 			DriverController->Possess(this);
 
-			UE_LOG(LogTemp, Warning, TEXT("[VEHICLE] Possess 실행됨 -> 이제 이 차량의 Controller=%s"),
-				GetController() ? *GetController()->GetName() : TEXT("NULL"));
+			// 운전자 로컬 컨트롤러의 입력을 차량 모드로 전환한다.
+			// (캐릭터 IMC가 남아 W/A/S/D를 먼저 소비하면 차량 액션에 도달하지 못한다.)
+			MulticastSwitchDriverInput(DriverController, true);
 		}
-		else
-		{
-			UE_LOG(LogTemp, Error, TEXT("[VEHICLE] 운전석인데 Character->GetController()가 NULL -> Possess 못함"));
-		}
-	}
-	else
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[VEHICLE] 이 좌석은 운전석이 아님 -> Possess 안함 (동승석에 탄 것)"));
 	}
 
 	// 서버에서도 좌석 변화 연출 훅 호출 (OnRep 은 클라 전용이므로)
@@ -304,6 +307,9 @@ void AVehicleBase::UnseatCharacter(ACharacterBase* Character, int32 SeatIndex)
 
 		AController* DriverController = CachedDriverController;
 		DriverController->Possess(Character);
+
+		// 운전자 입력을 캐릭터 모드로 복원한다 (각 머신 로컬에서 처리).
+		MulticastSwitchDriverInput(DriverController, false);
 
 		CachedDriverController = nullptr;
 		CachedDriverCharacter = nullptr;
@@ -380,48 +386,13 @@ void AVehicleBase::MulticastDetachOccupant_Implementation(ACharacterBase* Charac
 }
 
 // [VEHICLE-060] 운전 입력 바인딩 (컨트롤러가 이 Pawn 을 Possess 한 동안만 유효)
+// IMC 추가/제거는 컨트롤러(SwitchToVehicleInput)가 담당하고, 여기서는 액션 바인딩만 한다.
 void AVehicleBase::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
-	// [임시 진단] 이 함수가 호출됐는지부터 확인.
-	UE_LOG(LogTemp, Warning, TEXT("[VEHICLE] SetupPlayerInputComponent 호출됨. Controller=%s, InputComp=%s"),
-		GetController() ? *GetController()->GetName() : TEXT("NULL"),
-		PlayerInputComponent ? *PlayerInputComponent->GetClass()->GetName() : TEXT("NULL"));
-
-	// 운전자 로컬 컨트롤러에 운전용 입력 매핑 컨텍스트를 추가한다.
-	if (const APlayerController* PC = Cast<APlayerController>(GetController()))
-	{
-		if (UEnhancedInputLocalPlayerSubsystem* Subsystem =
-			ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
-		{
-			if (DrivingMappingContext)
-			{
-				Subsystem->AddMappingContext(DrivingMappingContext, 1);
-				UE_LOG(LogTemp, Warning, TEXT("[VEHICLE] DrivingMappingContext 추가됨"));
-			}
-			else
-			{
-				UE_LOG(LogTemp, Error, TEXT("[VEHICLE] DrivingMappingContext 가 NULL -> BP에서 지정 안됨"));
-			}
-		}
-		else
-		{
-			UE_LOG(LogTemp, Error, TEXT("[VEHICLE] EnhancedInput Subsystem 못 찾음"));
-		}
-	}
-	else
-	{
-		UE_LOG(LogTemp, Error, TEXT("[VEHICLE] GetController()가 PlayerController 아님 -> IMC 추가 못함"));
-	}
-
 	if (UEnhancedInputComponent* EIC = Cast<UEnhancedInputComponent>(PlayerInputComponent))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[VEHICLE] EnhancedInputComponent OK. Throttle=%s, Steer=%s, Exit=%s"),
-			ThrottleAction ? TEXT("있음") : TEXT("NULL"),
-			SteerAction ? TEXT("있음") : TEXT("NULL"),
-			ExitAction ? TEXT("있음") : TEXT("NULL"));
-
 		if (ThrottleAction)
 		{
 			EIC->BindAction(ThrottleAction, ETriggerEvent::Triggered, this, &AVehicleBase::OnThrottleInput);
@@ -438,9 +409,34 @@ void AVehicleBase::SetupPlayerInputComponent(UInputComponent* PlayerInputCompone
 			EIC->BindAction(ExitAction, ETriggerEvent::Started, this, &AVehicleBase::OnExitInput);
 		}
 	}
+}
+
+// [VEHICLE-065] 운전자 입력 모드 전환. 각 머신에서 자기 로컬 컨트롤러일 때만 IMC를 바꾼다.
+void AVehicleBase::MulticastSwitchDriverInput_Implementation(AController* DriverController, bool bEnterVehicle)
+{
+	// 입력 서브시스템은 로컬 플레이어에만 있으므로, 이 머신에서 로컬로 조종하는
+	// 컨트롤러가 아니면 무시한다.
+	ATeamProject_MOUPlayerController* PC = Cast<ATeamProject_MOUPlayerController>(DriverController);
+	UE_LOG(LogTemp, Warning, TEXT("[VEHICLE] MulticastSwitchDriverInput: bEnter=%d, DriverController=%s, castOK=%d, IsLocal=%d"),
+		bEnterVehicle ? 1 : 0,
+		DriverController ? *DriverController->GetName() : TEXT("NULL"),
+		PC ? 1 : 0,
+		(PC && PC->IsLocalController()) ? 1 : 0);
+
+	if (!PC || !PC->IsLocalController())
+	{
+		return;
+	}
+
+	if (bEnterVehicle)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[VEHICLE] -> SwitchToVehicleInput 호출, DrivingMappingContext=%s"),
+			DrivingMappingContext ? *DrivingMappingContext->GetName() : TEXT("NULL"));
+		PC->SwitchToVehicleInput(DrivingMappingContext);
+	}
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("[VEHICLE] PlayerInputComponent가 EnhancedInputComponent 아님 -> 액션 바인딩 못함"));
+		PC->RestoreCharacterInput();
 	}
 }
 
@@ -450,8 +446,16 @@ void AVehicleBase::OnThrottleInput(const FInputActionValue& Value)
 	UChaosVehicleMovementComponent* Movement = GetVehicleMovementComponent();
 	if (!Movement)
 	{
+		UE_LOG(LogTemp, Error, TEXT("[VEHICLE] OnThrottleInput: Movement NULL"));
 		return;
 	}
+
+	// Chaos Vehicle 은 입력이 없으면 Sleep/Park 상태로 시뮬레이션을 멈춘다.
+	// 스폰 직후 Sleep 로 시작하면 스로틀을 줘도 안 깨어나 EngineRPM 이 0에서 안 오른다.
+	// 그래서 입력이 들어올 때마다 명시적으로 깨우고 주차를 해제한다.
+	Movement->SetSleeping(false);
+	Movement->SetParked(false);
+	Movement->SetHandbrakeInput(false);
 
 	const float Axis = Value.Get<float>();
 
@@ -466,6 +470,26 @@ void AVehicleBase::OnThrottleInput(const FInputActionValue& Value)
 		Movement->SetThrottleInput(0.0f);
 		Movement->SetBrakeInput(-Axis);
 	}
+
+	// [임시 진단] 스로틀 설정 후 실제 물리 상태 확인.
+	// - HasAuthority / IsLocallyControlled: 이 머신이 물리 시뮬레이션 권한이 있는지
+	// - EngineRPM: 엔진이 실제로 도는지 (안 오르면 스로틀이 엔진에 전달 안 됨)
+	// - ForwardSpeed: 차가 실제로 나아가는지
+	float EngineRPM = -1.0f;
+	if (UChaosWheeledVehicleMovementComponent* Wheeled = Cast<UChaosWheeledVehicleMovementComponent>(Movement))
+	{
+		EngineRPM = Wheeled->GetEngineRotationSpeed();
+	}
+	// 차량의 실제 Forward/Up 방향. Chaos 는 ActorForward(X축)를 앞으로 보고 미는데,
+	// 차가 물리적으로 누워있으면 UpZ 가 1 이 아니고, 그러면 접지/구동이 깨진다.
+	const FVector Fwd = GetActorForwardVector();
+	const FVector Up = GetActorUpVector();
+	UE_LOG(LogTemp, Warning, TEXT("[VEHICLE] Throttle=%.2f | EngineRPM=%.1f | ForwardSpeed=%.1f | Fwd=(%.2f,%.2f,%.2f) Up=(%.2f,%.2f,%.2f)"),
+		Axis,
+		EngineRPM,
+		Movement->GetForwardSpeed(),
+		Fwd.X, Fwd.Y, Fwd.Z,
+		Up.X, Up.Y, Up.Z);
 }
 
 // [VEHICLE-062] A/D : 조향. 누르는 동안 Triggered 로 값이 계속 들어온다.

@@ -175,6 +175,12 @@ private:
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastDetachOccupant(ACharacterBase* Character, FVector ExitLocation);
 
+	// 운전자 입력 모드 전환. 각 머신에서 자기 로컬 컨트롤러일 때만 IMC를 전환한다
+	// (입력 서브시스템은 로컬 플레이어에만 존재하므로 Multicast로 내려보낸다).
+	// bEnterVehicle=true 면 차량 모드, false 면 캐릭터 모드로 복원.
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastSwitchDriverInput(AController* DriverController, bool bEnterVehicle);
+
 	// 운전석 탑승자가 원래 소유하던 컨트롤러 (하차 시 캐릭터 재빙의용). 서버 전용.
 	UPROPERTY(Transient)
 	TObjectPtr<AController> CachedDriverController;
