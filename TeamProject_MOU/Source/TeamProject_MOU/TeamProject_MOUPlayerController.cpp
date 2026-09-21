@@ -35,7 +35,6 @@ ATeamProject_MOUPlayerController::ATeamProject_MOUPlayerController()
 	//   이유는 헤더의 VoiceComponent 주석 참고.
 	VoiceComponent = CreateDefaultSubobject<UVoiceComponent>(TEXT("MOUVoiceComponent"));
 }
-
 void ATeamProject_MOUPlayerController::ServerSaveWarehouseDelivery_Implementation(
 	const TArray<FStoredItemData>& RequestedItems)
 {

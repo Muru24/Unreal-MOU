@@ -50,7 +50,9 @@ namespace MOU
 	//            추가했다. 릴레이는 UE 게임 패킷을 해석하지 않고 그대로 전달하며,
 	//            방장/참여자는 실제 게임 소켓에서 일회성 capability 로만 등록한다.
 	// v12: RoomMemberInfo에 고정 좌석 SlotIndex 추가. 서버/클라이언트 함께 갱신.
-	constexpr uint16_t kProtocolVersion = 12;
+	// v13: 이미 접속 중인 계정의 로그인을 거부하는 결과 코드 추가.
+	// v14: member material customization + request/ack. Rebuild both endpoints.
+	constexpr uint16_t kProtocolVersion = 14;
 
 	// BodySize 가 이 값을 넘으면 악성 패킷으로 보고 연결을 끊는다.
 	constexpr uint32_t kMaxBodySize = 4096;
@@ -235,6 +237,8 @@ namespace MOU
 		//
 		// ★ 엔드포인트는 **관측값**이다. 클라이언트가 신고하지 않는다 —
 		//   호스트 공인 주소를 accept() 에서 읽는 것과 같은 원칙이다.
+		RoomCustomizationReq = 44, // v14: authenticated member appearance
+		RoomCustomizationAck = 45,
 		ClientEndpointAck   = 43,  // S->C. "네 공인 엔드포인트를 이렇게 봤다"
 	};
 
@@ -421,6 +425,7 @@ namespace MOU
 		DuplicateId     = 5,   // 가입하려는 아이디가 이미 있다
 		InvalidFormat   = 6,   // 아이디/비번 길이 규칙 위반
 		ServerError     = 7,   // DB 오류 등 서버 문제. 클라이언트 잘못이 아니다
+		AlreadyOnline   = 8,   // 다른 세션에서 이미 로그인한 계정
 	};
 
 #pragma pack(push, 1)
@@ -601,12 +606,39 @@ namespace MOU
 	// ------------------------------------------------------------------
 
 	/** 대기실에 앉아 있는 사람 하나. RoomMemberListBody 뒤에 Count 개가 이어진다. */
+	// Fixed-size material parameters. No asset paths or client-selected user IDs.
+	struct CharacterCustomization
+	{
+		float BodyColor[4] = {1, 1, 1, 1};
+		float Metallic = 0.38816f;
+		float RoughnessB = 0.2848f;
+		float RoughnessA = 0.3712f;
+		int32_t DecalIndex = 2;
+		float DecalsColor[4] = {1, 0, 0.176412f, 1};
+		float TilingX = 1;
+		float TilingY = 1;
+	};
+	struct RoomCustomizationReqBody
+	{
+		uint32_t RequestId;
+		uint32_t RoomId;
+		CharacterCustomization Data;
+	};
+	struct RoomCustomizationAckBody
+	{
+		uint32_t RequestId;
+		uint32_t RoomId;
+		uint8_t Result;
+		CharacterCustomization Data;
+	};
+
 	struct RoomMemberInfo
 	{
 		uint64_t UserId;
 		char     Name[kMaxNameLen];
 		uint8_t  bIsHost;
 		uint8_t  bReady;                       // 호스트는 항상 1 로 채워 보낸다
+		CharacterCustomization Customization;
 		uint8_t  SlotIndex;                    // 0부터 시작하는 고정 좌석
 	};
 
@@ -958,7 +990,10 @@ namespace MOU
 	static_assert(sizeof(RoomJoinReqBody)   ==  8, "RoomJoinReqBody 에 패딩이 끼었다");
 	static_assert(sizeof(RoomJoinAckBody)   == 68, "RoomJoinAckBody 에 패딩이 끼었다");
 	static_assert(sizeof(RoomStateUpdateBody) == 6, "RoomStateUpdateBody 에 패딩이 끼었다");
-	static_assert(sizeof(RoomMemberInfo)     == 43, "RoomMemberInfo 에 패딩이 끼었다");
+	static_assert(sizeof(CharacterCustomization) == 56, "Customization wire size");
+	static_assert(sizeof(RoomCustomizationReqBody) == 64, "Customization request size");
+	static_assert(sizeof(RoomCustomizationAckBody) == 65, "Customization ack size");
+	static_assert(sizeof(RoomMemberInfo)     == 99, "RoomMemberInfo 에 패딩이 끼었다");
 	static_assert(sizeof(RoomMemberListBody) ==  6, "RoomMemberListBody 에 패딩이 끼었다");
 	static_assert(sizeof(RoomReadyReqBody)   ==  1, "RoomReadyReqBody 에 패딩이 끼었다");
 	static_assert(sizeof(RoomClosedBody)     ==  5, "RoomClosedBody 에 패딩이 끼었다");

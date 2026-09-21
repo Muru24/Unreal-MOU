@@ -30,6 +30,9 @@ void UStockGraphWidget::StartStockGraph(float InStopMultiplier, float InStartSer
 	// 기존 그래프 초기화
 	ResetStockGraph();
 
+	// 이전 라운드 현금화 마커 초기화
+	ResetCashOutMarker();
+
 	// 그래프 시작 위치 설정
 	CurrentX = 100.0f;
 	CurrentY = 600.0f;
@@ -51,7 +54,7 @@ void UStockGraphWidget::StartStockGraph(float InStopMultiplier, float InStartSer
 	// 첫번째 그래프 좌표 추가
 	AddGraph(FVector2D(CurrentX, CurrentY));
 
-	// 배율이 1.00x가 나온 경우 그래프가 진행하지 않고 즉시 종료
+	// 최소배율이 1.0x가 나온 경우 그래프가 진행하지 않고 즉시 종료
 	if (StopMultiplier <= MinStopMultiplier)
 	{
 		CurrentMultiplier = MinStopMultiplier;
@@ -82,6 +85,7 @@ void UStockGraphWidget::StopStockGraph()
 		GetWorld()->GetTimerManager().ClearTimer(GraphTimerHandle);
 	}
 }
+
 void UStockGraphWidget::UpdateStockGraph()
 {
 	// 그래프가 진행 중이 아니면 갱신하지 않음.
@@ -122,7 +126,7 @@ void UStockGraphWidget::UpdateStockGraph()
 	// 모든 라운드에서 동일한 X 진행
 	CurrentX = FMath::Lerp(100.0f, MaxX, Progress);
 
-	// 모든 라운드에서 동일한 1배 → 5배 상승 곡선 계산
+	// 모든 라운드에서 동일한 1배 → 3배 상승 곡선 계산
 	const float CalculateMultiplier = FMath::Lerp(MinStopMultiplier, MaxStopMultiplier, CurveAlpha);
 
 	// 이번 라운드의 랜덤 종료 배율까지만 허용
@@ -147,6 +151,65 @@ void UStockGraphWidget::UpdateStockGraph()
 		return;
 	}
 }
+
+void UStockGraphWidget::UpdateCashOutMarkerPoint()
+{
+	if (GraphPoint.Num() == 0)
+	{
+		return;
+	}
+
+	// 현금화 배율을 그래프 Y 좌표로 변환
+	const float NormalizedMultiplier =
+		(CashOutMarkerMultiplier - MinStopMultiplier) /
+		(MaxStopMultiplier - MinStopMultiplier);
+
+	const float TargetY =
+		FMath::Lerp(600.0f, 120.0f, NormalizedMultiplier);
+
+	// 아직 정확한 지점을 못 찾았을 경우 현재 마지막 점 사용
+	CashOutMarkerPoint = GraphPoint.Last();
+
+	// 실제 화면에 그려진 GraphPoint 사이에서
+	// CashOut 배율의 Y를 통과하는 구간 탐색
+	for (int32 i = 1; i < GraphPoint.Num(); ++i)
+	{
+		const FVector2D& PrevPoint = GraphPoint[i - 1];
+		const FVector2D& CurrentPoint = GraphPoint[i];
+
+		const bool bContainsTargetY =
+			(TargetY <= PrevPoint.Y && TargetY >= CurrentPoint.Y) ||
+			(TargetY >= PrevPoint.Y && TargetY <= CurrentPoint.Y);
+
+		if (!bContainsTargetY)
+		{
+			continue;
+		}
+
+		const float YDifference =
+			CurrentPoint.Y - PrevPoint.Y;
+
+		const float Alpha =
+			FMath::IsNearlyZero(YDifference)
+			? 0.0f
+			: FMath::Clamp(
+				(TargetY - PrevPoint.Y) / YDifference,
+				0.0f,
+				1.0f
+			);
+
+		// 실제 그려진 선분 위의 정확한 위치
+		CashOutMarkerPoint =
+			FMath::Lerp(
+				PrevPoint,
+				CurrentPoint,
+				Alpha
+			);
+
+		break;
+	}
+}
+
 void UStockGraphWidget::AddGraph(FVector2D NewPoint)
 {
 	// 새로운 그래프 좌표 추가
@@ -162,6 +225,40 @@ void UStockGraphWidget::ResetStockGraph()
 	GraphPoint.Empty();
 
 	// 초기화된 상태를 화면에 반영
+	InvalidateLayoutAndVolatility();
+}
+
+void UStockGraphWidget::SetCashOutMarker(float InMultiplier)
+{
+	CashOutMarkerMultiplier = FMath::Clamp(
+		InMultiplier,
+		MinStopMultiplier,
+		MaxStopMultiplier
+	);
+
+	// 현금화 순간 최신 서버 시간 기준으로
+	// 그래프를 한 번 즉시 갱신
+	if (GraphRunning)
+	{
+		UpdateStockGraph();
+	}
+
+
+	ShowCashOutMarker = true;
+
+	// 현금화 순간 단 한 번만 실제 그래프 선에서 위치 결정
+	UpdateCashOutMarkerPoint();
+
+	InvalidateLayoutAndVolatility();
+}
+
+void UStockGraphWidget::ResetCashOutMarker()
+{
+	ShowCashOutMarker = false;
+
+	CashOutMarkerMultiplier = 0.0f;
+	CashOutMarkerPoint = FVector2D::ZeroVector;
+
 	InvalidateLayoutAndVolatility();
 }
 
@@ -203,6 +300,59 @@ int32 UStockGraphWidget::NativePaint(const FPaintArgs& Args, const FGeometry& Al
 		true,
 		5.0f
 	);
+
+	// 현금화 지점 마커 표시
+	if (ShowCashOutMarker)
+	{
+		const float MarkerSize = 12.0f;
+
+		TArray<FVector2f> MarkerLine1;
+		MarkerLine1.Add(FVector2f(
+			CashOutMarkerPoint.X - MarkerSize,
+			CashOutMarkerPoint.Y - MarkerSize
+		));
+		MarkerLine1.Add(FVector2f(
+			CashOutMarkerPoint.X + MarkerSize,
+			CashOutMarkerPoint.Y + MarkerSize
+		));
+
+		TArray<FVector2f> MarkerLine2;
+		MarkerLine2.Add(FVector2f(
+			CashOutMarkerPoint.X - MarkerSize,
+			CashOutMarkerPoint.Y + MarkerSize
+		));
+		MarkerLine2.Add(FVector2f(
+			CashOutMarkerPoint.X + MarkerSize,
+			CashOutMarkerPoint.Y - MarkerSize
+		));
+
+		const int32 MarkerLayer = GraphLayer + 1;
+
+		FSlateDrawElement::MakeLines(
+			OutDrawElements,
+			MarkerLayer,
+			AllottedGeometry.ToPaintGeometry(),
+			MarkerLine1,
+			ESlateDrawEffect::None,
+			FLinearColor(1.0f, 0.5f, 0.0f, 1.0f),
+			true,
+			7.0f
+		);
+
+		FSlateDrawElement::MakeLines(
+			OutDrawElements,
+			MarkerLayer,
+			AllottedGeometry.ToPaintGeometry(),
+			MarkerLine2,
+			ESlateDrawEffect::None,
+			FLinearColor(1.0f, 0.5f, 0.0f, 1.0f),
+			true,
+			7.0f
+		);
+
+		return MarkerLayer;
+	}
+
 
 	return GraphLayer;
 }

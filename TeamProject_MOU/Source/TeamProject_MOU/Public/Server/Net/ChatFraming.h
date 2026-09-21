@@ -52,6 +52,7 @@ namespace MOUChat
 	static_assert(static_cast<uint8>(EChatLoginResultBP::DuplicateId)     == static_cast<uint8>(MOU::ELoginResult::DuplicateId),     "EChatLoginResultBP::DuplicateId 가 서버 정의와 다르다");
 	static_assert(static_cast<uint8>(EChatLoginResultBP::InvalidFormat)   == static_cast<uint8>(MOU::ELoginResult::InvalidFormat),   "EChatLoginResultBP::InvalidFormat 가 서버 정의와 다르다");
 	static_assert(static_cast<uint8>(EChatLoginResultBP::ServerError)     == static_cast<uint8>(MOU::ELoginResult::ServerError),     "EChatLoginResultBP::ServerError 가 서버 정의와 다르다");
+	static_assert(static_cast<uint8>(EChatLoginResultBP::AlreadyOnline)   == static_cast<uint8>(MOU::ELoginResult::AlreadyOnline),   "EChatLoginResultBP::AlreadyOnline 이 서버 정의와 다르다");
 
 	// 로비 결과 코드도 같은 이유로 맞춰둔다.
 	static_assert(static_cast<uint8>(EMOURoomResultBP::Success)        == static_cast<uint8>(MOU::ERoomResult::Success),        "EMOURoomResultBP::Success 가 서버 정의와 다르다");

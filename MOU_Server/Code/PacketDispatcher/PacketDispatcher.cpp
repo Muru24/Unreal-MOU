@@ -41,6 +41,7 @@ namespace MOU::ServerRuntime
 		case EOpcode::RoomJoinReq:     return HandleRoomJoinReq(Session, Data, Size);
 		case EOpcode::RoomLeaveReq:    return HandleRoomLeaveReq(Session, Data, Size);
 		case EOpcode::RoomStateUpdate: return HandleRoomStateUpdate(Session, Data, Size);
+		case EOpcode::RoomCustomizationReq: return HandleRoomCustomizationReq(Session, Data, Size);
 		case EOpcode::RoomReadyReq:    return HandleRoomReadyReq(Session, Data, Size);
 		case EOpcode::RoomStartReq:    return HandleRoomStartReq(Session, Data, Size);
 		case EOpcode::RoomHostReadyReq: return HandleRoomHostReadyReq(Session, Data, Size);

@@ -43,6 +43,7 @@ namespace
 		case ELoginResult::DuplicateId:     return "이미 있는 아이디";
 		case ELoginResult::InvalidFormat:   return "아이디/비밀번호 형식 위반";
 		case ELoginResult::ServerError:     return "서버 오류";
+		case ELoginResult::AlreadyOnline:   return "이미 접속 중인 계정";
 		default:                            return "알 수 없음";
 		}
 	}

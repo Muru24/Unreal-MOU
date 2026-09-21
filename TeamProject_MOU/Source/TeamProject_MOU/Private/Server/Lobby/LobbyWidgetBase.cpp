@@ -1,4 +1,4 @@
-﻿// MOU 로비 - 메인메뉴 + 대기실 UI 구현.
+// MOU 로비 - 메인메뉴 + 대기실 UI 구현.
 //
 // 이 파일은 소켓/패킷을 전혀 모른다.
 //   상태 조회: UServerSubsystem (연결 상태 / 내 신원 / 방 번호 / 대기실 명단)
@@ -696,7 +696,7 @@ bool ULobbyWidgetBase::NavigateBack()
 	}
 	if (IsTopPage(CustomizeWidget))
 	{
-		HandleCustomizeClosed();
+		CustomizeWidget->CancelAndExit();
 		return true;
 	}
 	if (IsTopPage(RoomLobbyWidget))

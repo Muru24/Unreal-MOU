@@ -1,4 +1,5 @@
 #include "AuthHandler/AuthHandler.h"
+#include "ServerContext/ServerContext.h"
 #include "ServerLog/ServerLog.h"
 #include "SocialHandler/SocialHandler.h"
 #include "Accounts/Accounts.h"
@@ -115,10 +116,13 @@ namespace MOU::ServerRuntime
 			return true;
 		}
 
-		Session->UserId  = AccountId;
-		Session->Name    = Nickname;
-		Session->TeamId  = Req.TeamId;
-		Session->bAuthed = true;
+		if (!Context().Sessions.TryClaimAccount(Session, AccountId, Nickname, Req.TeamId))
+		{
+			ServerLog::Print("[거부] 이미 접속 중인 계정: id=%s, UserId=%llu\n",
+			            LoginId.c_str(), static_cast<unsigned long long>(AccountId));
+			SendLoginFailure(Session, ELoginResult::AlreadyOnline);
+			return true;
+		}
 
 		// ★ 친구 캐시를 여기서 한 번 채운다(Session.h 의 FriendIds 주석).
 		//   이 목록은 "접속 상태가 바뀌었을 때 알려줄 대상" 이라, 상태가 바뀔

@@ -72,10 +72,6 @@ void UBatteryStatusWidget::UpdateBattery(float NewCurrentBattery, float NewMaxBa
 	{
 		TargetColor = DepletedColor;
 	}
-	else if (bFlashlightOn)
-	{
-		TargetColor = FlashlightColor;
-	}
 	else
 	{
 		TargetColor = DefaultIdleColor;

@@ -57,6 +57,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Customization")
 	void ReinitializeAndApply();
 
+	/** Local preview only: supports a SceneCapture actor with its own skeletal mesh. */
+	UFUNCTION(BlueprintCallable, Category = "Customization")
+	void SetPreviewMesh(USkeletalMeshComponent* Mesh);
+
+	/** Called again after possession/client restart because BeginPlay can precede ownership. */
+	void ApplyLocalCustomization();
+
+
 	// 서버로 커스터마이징 데이터 전송 RPC
 	UFUNCTION(Server, Reliable, BlueprintCallable, Category = "Customization|Network")
 	void ServerSetCustomizationData(const FCharacterCustomizationData& NewData);
@@ -84,4 +92,5 @@ private:
 	void ApplyDataToMaterials(const FCharacterCustomizationData& InData);
 
 	TWeakObjectPtr<ACharacter> OwnerCharacter;
+	TWeakObjectPtr<USkeletalMeshComponent> PreviewMesh;
 };

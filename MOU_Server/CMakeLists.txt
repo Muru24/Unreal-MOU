@@ -103,3 +103,13 @@ add_executable(RoomSlotsTest Tests/RoomSlotsTest.cpp Code/Rooms/Rooms.cpp)
 target_include_directories(RoomSlotsTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Code)
 target_link_libraries(RoomSlotsTest PRIVATE mou_shared)
 add_test(NAME RoomSlotsTest COMMAND RoomSlotsTest)
+
+add_executable(RoomCustomizationTest Tests/RoomCustomizationTest.cpp Code/Rooms/Rooms.cpp)
+target_include_directories(RoomCustomizationTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Code)
+target_link_libraries(RoomCustomizationTest PRIVATE mou_shared)
+add_test(NAME RoomCustomizationTest COMMAND RoomCustomizationTest)
+
+add_executable(SessionAuthTest Tests/SessionAuthTest.cpp Code/Session/Session.cpp)
+target_include_directories(SessionAuthTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Code)
+target_link_libraries(SessionAuthTest PRIVATE mou_shared)
+add_test(NAME SessionAuthTest COMMAND SessionAuthTest)

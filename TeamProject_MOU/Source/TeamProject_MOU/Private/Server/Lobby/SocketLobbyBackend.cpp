@@ -5,6 +5,7 @@
 // 몰라도 되게 만들기 위해서다. 그 선이 그어져 있어야 EOS 백엔드를 끼울 수 있다.
 
 #include "Server/Lobby/SocketLobbyBackend.h"
+#include "Server/Net/CustomizationWire.h"
 
 #include "Server/Net/ServerClientRunnable.h"
 #include "HAL/RunnableThread.h"
@@ -286,6 +287,19 @@ void FSocketLobbyBackend::JoinRoom(int32 RoomId, const FString& RoomPassword)
 void FSocketLobbyBackend::LeaveRoom()
 {
 	SendEmpty(MOU::EOpcode::RoomLeaveReq, TEXT("RoomLeaveReq"));
+}
+
+bool FSocketLobbyBackend::SetCustomization(int32 RoomId, uint32 RequestId, const FCharacterCustomizationData& Data)
+{
+	if (!ServerClient) return false;
+	MOU::RoomCustomizationReqBody Request{};
+	Request.RoomId = RoomId;
+	Request.RequestId = RequestId;
+	Request.Data = MOUCustomization::ToWire(Data);
+	TArray<uint8> Packet;
+	if (!MOUChat::BuildPacket(Packet, MOU::EOpcode::RoomCustomizationReq, &Request, sizeof(Request))) return false;
+	ServerClient->EnqueuePacket(MoveTemp(Packet));
+	return true;
 }
 
 void FSocketLobbyBackend::SetReady(bool bReady)

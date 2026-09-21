@@ -1,7 +1,8 @@
-﻿// MOU 채팅 - 워커 스레드 구현.
+// MOU 채팅 - 워커 스레드 구현.
 // 대응하는 서버 코드: MOU_Server/Server/Server.cpp 의 ClientThread()
 
 #include "Server/Net/ServerClientRunnable.h"
+#include "Server/Net/CustomizationWire.h"
 
 #include "HAL/PlatformProcess.h"
 #include "IPAddress.h"
@@ -458,6 +459,7 @@ void FServerClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const 
 			Member.bIsHost = (Src.bIsHost != 0);
 			Member.bReady  = (Src.bReady != 0);
 			Member.SlotIndex = Src.SlotIndex;
+			Member.Customization = MOUCustomization::FromWire(Src.Customization);
 			Event.Members.Add(MoveTemp(Member));
 		}
 
@@ -465,6 +467,20 @@ void FServerClientRunnable::HandlePacket(const MOU::PacketHeader& Header, const 
 		break;
 	}
 
+	case MOU::EOpcode::RoomCustomizationAck:
+	{
+		if (Body.Num() != sizeof(MOU::RoomCustomizationAckBody)) break;
+		MOU::RoomCustomizationAckBody Ack{};
+		FMemory::Memcpy(&Ack, Body.GetData(), sizeof(Ack));
+		FServerClientEvent Event;
+		Event.Type = EServerClientEventType::RoomCustomizationAck;
+		Event.RoomId = Ack.RoomId;
+		Event.RoomResult = static_cast<EMOURoomResultBP>(Ack.Result);
+		Event.Customization = MOUCustomization::FromWire(Ack.Data);
+		Event.CustomizationRequestId = Ack.RequestId;
+		InboundEvents.Enqueue(MoveTemp(Event));
+		break;
+	}
 	case MOU::EOpcode::RoomClosed:
 	{
 		if (Body.Num() < static_cast<int32>(sizeof(MOU::RoomClosedBody)))

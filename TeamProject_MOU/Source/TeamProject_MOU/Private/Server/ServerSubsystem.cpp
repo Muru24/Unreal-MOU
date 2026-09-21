@@ -1,4 +1,4 @@
-﻿// MOU 채팅 - 서브시스템 구현.
+// MOU 채팅 - 서브시스템 구현.
 //
 // 이 파일이 하는 일은 결국 4가지다.
 //   1. 백엔드(ILobbyBackend) 수명 관리 (생성 / 안전한 파괴)
@@ -16,6 +16,8 @@
 //   여기서 다시 적으면 서버가 상한을 바꿨을 때 조용히 어긋난다.
 
 #include "Server/ServerSubsystem.h"
+#include "Components/CharacterCustomizationComponent.h"
+#include "Server/Net/CustomizationWire.h"
 
 #include "Server/Net/ChatFraming.h"   // 계정/방 비밀번호 길이 규칙 상수 (패킷 조립에는 쓰지 않는다)
 #include "Server/Lobby/LobbyBackend.h"
@@ -236,6 +238,7 @@ FString UServerSubsystem::GetLoginResultText(EChatLoginResultBP Result)
 	case EChatLoginResultBP::DuplicateId:     return TEXT("이미 사용 중인 아이디입니다.");
 	case EChatLoginResultBP::InvalidFormat:   return TEXT("아이디 또는 비밀번호 형식이 올바르지 않습니다.");
 	case EChatLoginResultBP::ServerError:     return TEXT("서버 오류입니다. 잠시 후 다시 시도해 주세요.");
+	case EChatLoginResultBP::AlreadyOnline:   return TEXT("이미 접속 중인 계정입니다. 기존 접속을 종료한 뒤 다시 시도해 주세요.");
 	default:                                  return TEXT("알 수 없는 오류입니다.");
 	}
 }
@@ -487,6 +490,31 @@ void UServerSubsystem::LeaveRoom()
 	ClearRoomState();
 }
 
+FCharacterCustomizationData UServerSubsystem::GetLocalCustomization()
+{
+	if (!bLocalCustomizationLoaded)
+	{
+		auto* Storage = NewObject<UCharacterCustomizationComponent>(this);
+		if (!Storage->LoadCustomizationFromDisk(LocalCustomization) ||
+			!MOU::IsValidCustomization(MOUCustomization::ToWire(LocalCustomization)))
+		{
+			LocalCustomization = MOUCustomization::FromWire(MOU::CharacterCustomization{});
+		}
+		bLocalCustomizationLoaded = true;
+	}
+	return LocalCustomization;
+}
+
+bool UServerSubsystem::SubmitCustomization(const FCharacterCustomizationData& Data)
+{
+	if (!Backend.IsValid() || !Backend->IsRunning() || CurrentRoomId == 0 || bCustomizationPending ||
+		!MOU::IsValidCustomization(MOUCustomization::ToWire(Data))) return false;
+	if (!Backend->SetCustomization(CurrentRoomId, ++CustomizationRequestId, Data)) return false;
+	bCustomizationPending = true;
+	CustomizationRequestTime = FPlatformTime::Seconds();
+	return true;
+}
+
 void UServerSubsystem::SetReady(bool bReady)
 {
 	if (!Backend.IsValid() || CurrentRoomId == 0)
@@ -658,6 +686,13 @@ bool UServerSubsystem::IsSelfReady() const
 
 void UServerSubsystem::ClearRoomState()
 {
+	++CustomizationRequestId; // Ignore replies from a previous room/session.
+	if (bCustomizationPending)
+	{
+		bCustomizationPending = false;
+		OnLobbyCustomizationResult.Broadcast(false, false);
+	}
+
 	MyRoomId      = 0;
 	CurrentRoomId = 0;
 	RoomMembers.Reset();
@@ -711,6 +746,12 @@ void UServerSubsystem::Disconnect()
 
 bool UServerSubsystem::Tick(float DeltaTime)
 {
+	if (bCustomizationPending && FPlatformTime::Seconds() - CustomizationRequestTime > 10.0)
+	{
+		bCustomizationPending = false;
+		OnLobbyCustomizationResult.Broadcast(false, false);
+	}
+
 	if (!Backend.IsValid())
 	{
 		return true;   // false 를 돌려주면 틱이 영구 해제된다. 항상 true
@@ -786,7 +827,8 @@ bool UServerSubsystem::Tick(float DeltaTime)
 				// 재접속 때마다 틀린 비밀번호를 자동 재전송하는 것을 막는다.
 				if (LoginResult.Result == EChatLoginResultBP::AccountNotFound
 					|| LoginResult.Result == EChatLoginResultBP::WrongPassword
-					|| LoginResult.Result == EChatLoginResultBP::InvalidFormat)
+					|| LoginResult.Result == EChatLoginResultBP::InvalidFormat
+					|| LoginResult.Result == EChatLoginResultBP::AlreadyOnline)
 				{
 					bHasPendingLogin = false;
 					PendingPassword.Empty();
@@ -818,6 +860,7 @@ bool UServerSubsystem::Tick(float DeltaTime)
 			{
 				MyRoomId      = Event.RoomId;
 				CurrentRoomId = Event.RoomId;   // 방장도 그 방의 멤버다
+				SubmitCustomization(GetLocalCustomization());
 				UE_LOG(LogMOUServer, Log, TEXT("방 생성 완료. 방번호 #%d"), MyRoomId);
 			}
 			else
@@ -837,6 +880,7 @@ bool UServerSubsystem::Tick(float DeltaTime)
 			if (Event.Join.bSuccess)
 			{
 				CurrentRoomId = Event.Join.RoomId;   // 대기실 입장. 방장은 아니다
+				SubmitCustomization(GetLocalCustomization());
 				UE_LOG(LogMOUServer, Log, TEXT("방 #%d 입장. 호스트 후보 %s"),
 					Event.Join.RoomId, *Event.Join.ToDisplayString());
 			}
@@ -861,6 +905,22 @@ bool UServerSubsystem::Tick(float DeltaTime)
 			}
 			break;
 
+		case EServerClientEventType::RoomCustomizationAck:
+			if (Event.RoomId == CurrentRoomId && Event.CustomizationRequestId == CustomizationRequestId)
+			{
+				bCustomizationPending = false;
+				const bool bSuccess = Event.RoomResult == EMOURoomResultBP::Success;
+				bool bSaved = false;
+				if (bSuccess)
+				{
+					LocalCustomization = Event.Customization;
+					bLocalCustomizationLoaded = true;
+					auto* Storage = NewObject<UCharacterCustomizationComponent>(this);
+					bSaved = Storage->SaveCustomizationToDisk(LocalCustomization);
+				}
+				OnLobbyCustomizationResult.Broadcast(bSuccess, bSaved);
+			}
+			break;
 		case EServerClientEventType::RoomClosed:
 			UE_LOG(LogMOUServer, Log, TEXT("방 #%d 이(가) 닫혔다. 방장이 나갔다."), Event.RoomId);
 			ClearRoomState();

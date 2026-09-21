@@ -17,6 +17,14 @@ namespace MOU
 	void SessionManager::Remove(const SessionPtr& Session)
 	{
 		std::lock_guard<std::mutex> Lock(Mutex);
+		if (Session->bAuthed)
+		{
+			const auto Owner = AccountOwners.find(Session->UserId);
+			if (Owner != AccountOwners.end() && Owner->second == Session.get())
+			{
+				AccountOwners.erase(Owner);
+			}
+		}
 
 		const auto It = std::find(Sessions.begin(), Sessions.end(), Session);
 		if (It != Sessions.end())
@@ -31,6 +39,25 @@ namespace MOU
 			CloseSocket(Session->Sock);
 			Session->Sock = kInvalidSocket;
 		}
+	}
+
+	bool SessionManager::TryClaimAccount(const SessionPtr& Session, uint64_t UserId,
+	                                     const std::string& Name, int32_t TeamId)
+	{
+		std::lock_guard<std::mutex> Lock(Mutex);
+		if (UserId == 0 || Session->bAuthed ||
+		    std::find(Sessions.begin(), Sessions.end(), Session) == Sessions.end() ||
+		    AccountOwners.find(UserId) != AccountOwners.end())
+		{
+			return false;
+		}
+
+		Session->UserId = UserId;
+		Session->Name = Name;
+		Session->TeamId = TeamId;
+		Session->bAuthed = true;
+		AccountOwners.emplace(UserId, Session.get());
+		return true;
 	}
 
 	uint64_t SessionManager::AssignUserId()

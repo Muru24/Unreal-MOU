@@ -272,7 +272,14 @@ void AMainCharacter::BeginPlay()
 void AMainCharacter::PossessedBy(AController* NewController)
 {
 	Super::PossessedBy(NewController);
+	if (CustomizationComponent) CustomizationComponent->ApplyLocalCustomization();
 	UpdateFirstPersonMeshVisibility();
+}
+
+void AMainCharacter::PawnClientRestart()
+{
+	Super::PawnClientRestart();
+	if (CustomizationComponent) CustomizationComponent->ApplyLocalCustomization();
 }
 
 void AMainCharacter::OnRep_PlayerState()

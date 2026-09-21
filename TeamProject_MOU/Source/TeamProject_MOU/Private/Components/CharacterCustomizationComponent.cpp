@@ -1,4 +1,6 @@
 #include "Components/CharacterCustomizationComponent.h"
+#include "Server/ServerSubsystem.h"
+#include "Server/Net/CustomizationWire.h"
 #include "GameFramework/Character.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -31,44 +33,35 @@ void UCharacterCustomizationComponent::BeginPlay()
 
 	InitDynamicMaterials();
 
-	// 로컬 플레이어인 경우 로컬 SaveGame에서 커스터마이징 정보 로드 및 서버 동기화
-	if (OwnerCharacter.IsValid() && OwnerCharacter->IsLocallyControlled())
+	ApplyDataToMaterials(CustomizationData);
+	ApplyLocalCustomization();
+}
+
+void UCharacterCustomizationComponent::ApplyLocalCustomization()
+{
+	ACharacter* Character = Cast<ACharacter>(GetOwner());
+	if (!HasBegunPlay() || !Character || !Character->IsLocallyControlled()) return;
+	if (UServerSubsystem* Server = UServerSubsystem::Get(this))
 	{
-		FCharacterCustomizationData SavedData;
-		if (LoadCustomizationFromDisk(SavedData))
-		{
-			CustomizationData = SavedData;
-			ApplyDataToMaterials(CustomizationData);
-			ServerSetCustomizationData(CustomizationData);
-		}
-		else
-		{
-			// 저장 데이터가 없으면 데이터 에셋의 기본 프리셋 적용
-			if (CustomizationDataAsset && CustomizationDataAsset->DefaultPresets.Num() > 0)
-			{
-				CustomizationData = CustomizationDataAsset->DefaultPresets[0];
-				ApplyDataToMaterials(CustomizationData);
-				ServerSetCustomizationData(CustomizationData);
-			}
-		}
+		const auto Data = Server->GetLocalCustomization();
+		ApplyDataToMaterials(Data);
+		ServerSetCustomizationData(Data);
 	}
-	else
-	{
-		// 프록시 또는 서버는 현재 복제된 데이터로 머티리얼 적용
-		ApplyDataToMaterials(CustomizationData);
-	}
+}
+
+void UCharacterCustomizationComponent::SetPreviewMesh(USkeletalMeshComponent* Mesh)
+{
+	if (PreviewMesh.Get() == Mesh) return;
+	PreviewMesh = Mesh;
+	ReinitializeAndApply();
 }
 
 void UCharacterCustomizationComponent::InitDynamicMaterials()
 {
 	BodyMaterialInstances.Empty();
 
-	if (!OwnerCharacter.IsValid())
-	{
-		return;
-	}
-
-	USkeletalMeshComponent* MeshComp = OwnerCharacter->GetMesh();
+	USkeletalMeshComponent* MeshComp = PreviewMesh.Get();
+	if (!MeshComp && OwnerCharacter.IsValid()) MeshComp = OwnerCharacter->GetMesh();
 	if (!MeshComp)
 	{
 		return;
@@ -106,6 +99,8 @@ void UCharacterCustomizationComponent::ApplyPreview(const FCharacterCustomizatio
 
 void UCharacterCustomizationComponent::ConfirmAndApplyCustomization(const FCharacterCustomizationData& InNewData)
 {
+	if (!MOU::IsValidCustomization(MOUCustomization::ToWire(InNewData))) return;
+	if (UServerSubsystem* Server = UServerSubsystem::Get(this)) Server->CacheLocalCustomization(InNewData);
 	// 1. 로컬 즉시 반영
 	ApplyDataToMaterials(InNewData);
 
@@ -118,6 +113,7 @@ void UCharacterCustomizationComponent::ConfirmAndApplyCustomization(const FChara
 
 void UCharacterCustomizationComponent::ServerSetCustomizationData_Implementation(const FCharacterCustomizationData& NewData)
 {
+	if (!MOU::IsValidCustomization(MOUCustomization::ToWire(NewData))) return;
 	CustomizationData = NewData;
 
 	// 서버(호스트)에서도 머티리얼 즉시 반영

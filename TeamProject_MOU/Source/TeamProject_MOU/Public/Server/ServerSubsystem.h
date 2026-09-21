@@ -1,4 +1,4 @@
-﻿// MOU 채팅 - 채팅 시스템의 진입점.
+// MOU 채팅 - 채팅 시스템의 진입점.
 //
 // [팀원이 알아야 할 것 - 요약]
 //   채팅을 쓰려면 이 서브시스템만 알면 된다. 소켓이나 스레드는 볼 필요 없다.
@@ -80,6 +80,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnRoomGameStarted, const FMOURoomJ
  * Host.MakeTravelURL() 로 ClientTravel 하면 된다.
  * 방장에게는 오지 않는다 — 이 신호를 만든 것이 방장 자신이기 때문이다.
  */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnLobbyCustomizationResult, bool, bSuccess, bool, bSavedToDisk);
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnRoomHostReady, const FMOURoomJoinResult&, Host);
 
 // --- 친구 / 메신저 (v7) ---
@@ -133,6 +135,19 @@ class TEAMPROJECT_MOU_API UServerSubsystem : public UGameInstanceSubsystem
 	GENERATED_BODY()
 
 public:
+	/** Accepted local appearance survives map travel in this GameInstance subsystem. */
+	UFUNCTION(BlueprintPure, Category = "MOU|Lobby|Customization")
+	FCharacterCustomizationData GetLocalCustomization();
+
+	UFUNCTION(BlueprintCallable, Category = "MOU|Lobby|Customization")
+	bool SubmitCustomization(const FCharacterCustomizationData& Data);
+
+	UPROPERTY(BlueprintAssignable, Category = "MOU|Lobby|Customization")
+	FOnLobbyCustomizationResult OnLobbyCustomizationResult;
+
+	void CacheLocalCustomization(const FCharacterCustomizationData& Data) { LocalCustomization = Data; bLocalCustomizationLoaded = true; }
+
+	bool IsCustomizationPending() const { return bCustomizationPending; }
 	// --- UGameInstanceSubsystem ------------------------------------------
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
@@ -981,6 +996,12 @@ private:
 
 	/** 방을 떠났을 때 대기실 관련 상태를 한 번에 비운다. */
 	void ClearRoomState();
+	FCharacterCustomizationData LocalCustomization;
+	bool bLocalCustomizationLoaded = false;
+	bool bCustomizationPending = false;
+	double CustomizationRequestTime = 0;
+	uint32 CustomizationRequestId = 0;
+
 
 	/** RoomStart 에서 받은 방장 전용 host-facing relay 경로들. */
 	TArray<FMOUGameRelayRoute> PendingHostRelayRoutes;

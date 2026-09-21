@@ -4,6 +4,8 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "UI/CharacterCustomizationWidget.h"
+#include "Server/Lobby/LobbyTypes.h"
 #include "LobbyPageWidgetBase.generated.h"
 
 class UButton;
@@ -12,6 +14,11 @@ class UVerticalBox;
 class UServerSubsystem;
 class UUniformGridPanel;
 class URoomPlayerSlotWidgetBase;
+class UImage;
+class UMaterialInstanceDynamic;
+class UTextureRenderTarget2D;
+class USceneCaptureComponent2D;
+class AActor;
 
 DECLARE_DELEGATE(FOnLobbyPageAction);
 
@@ -126,6 +133,7 @@ private:
 	UFUNCTION() void HandleCustomizeClicked();
 	UFUNCTION() void HandleLeaveClicked();
 	void BuildDefaultLayout();
+	void EnsurePlayerSlots();
 	void RebuildMemberList(const UServerSubsystem* Server);
 
 	UPROPERTY()
@@ -155,21 +163,68 @@ private:
 
 /** 방 대기실 위에 Push되는 커스터마이징 페이지. */
 UCLASS()
-class TEAMPROJECT_MOU_API ULobbyCustomizeWidgetBase : public UUserWidget
+class TEAMPROJECT_MOU_API ULobbyCustomizeWidgetBase : public UCharacterCustomizationWidget
 {
 	GENERATED_BODY()
 
 public:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeConstruct() override;
+	virtual void NativeDestruct() override;
+	virtual void ConfirmAndSave() override;
+	virtual void CancelAndExit() override;
+	virtual void RotateCharacter(float DeltaX) override;
+
+	/** Register a lobby preview actor's CharacterCustomizationComponent. */
+	UFUNCTION(BlueprintCallable, Category = "MOU|Lobby|Customization")
+	void SetPreviewComponent(UCharacterCustomizationComponent* Component);
+
+	UPROPERTY(BlueprintReadOnly, Category = "MOU|Lobby|Customization")
+	bool bWaitingForConfirmation = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "MOU|Lobby|Customization")
+	int32 LocalSlotIndex = INDEX_NONE;
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "MOU|Lobby|Customization")
+	void OnCustomizationStatus(const FText& Message, bool bSuccess);
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "MOU|Lobby|Customization")
+	void OnCustomizationPreviewChanged(const FCharacterCustomizationData& Data);
 
 	FOnLobbyPageAction OnBack;
 
 protected:
+	virtual void InitializeCustomization() override;
+	virtual void UpdatePreview() override;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "MOU|Lobby")
+	TObjectPtr<UButton> ConfirmButton;
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "MOU|Lobby")
+	TObjectPtr<UButton> ResetButton;
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "MOU|Lobby")
+	TObjectPtr<UTextBlock> CustomizationStatusText;
+
+	/** WBP에 같은 이름의 Image를 만들면 그 위치를 사용한다. 없으면 Canvas에 자동 추가한다. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "MOU|Lobby|Customization")
+	TObjectPtr<UImage> PreviewImage;
+
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "MOU|Lobby")
 	TObjectPtr<UButton> BackButton;
 
 private:
+	UFUNCTION() void HandleConfirmClicked();
+	UFUNCTION() void HandleResetClicked();
+	UFUNCTION() void HandleCustomizationResult(bool bSuccess, bool bSavedToDisk);
+	UFUNCTION() void HandlePreviewRoomMembersChanged(int32 RoomId, const TArray<FMOURoomMember>& Members, bool bAllReady);
+	void ShowStatus(const FText& Message, bool bSuccess);
+	TWeakObjectPtr<UCharacterCustomizationComponent> PreviewComponent;
+	TWeakObjectPtr<USceneCaptureComponent2D> PreviewCapture;
+	bool bPreviewCaptureEveryFrameBeforeEdit = false;
+	UPROPERTY(Transient)
+	TObjectPtr<UTextureRenderTarget2D> PreviewRenderTarget;
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> PreviewUIMaterial;
+	void ConnectOwnSlotPreview();
 	UFUNCTION() void HandleBackClicked();
 	void BuildDefaultLayout();
 };

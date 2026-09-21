@@ -6,6 +6,8 @@
 #include "RoomPlayerSlotWidgetBase.generated.h"
 
 class UImage;
+class UCharacterCustomizationComponent;
+class AActor;
 class UTextBlock;
 class UWidget;
 
@@ -16,6 +18,20 @@ class TEAMPROJECT_MOU_API URoomPlayerSlotWidgetBase : public UUserWidget
 	GENERATED_BODY()
 public:
 	virtual void NativeOnInitialized() override;
+	virtual void NativeConstruct() override;
+
+	/** Each slot must register its own preview actor, never another player's live pawn. */
+	UFUNCTION(BlueprintCallable, Category = "MOU|Lobby|Slot")
+	void SetPreviewComponent(UCharacterCustomizationComponent* Component);
+
+	/** 기존 BP_LobbyCharacterPreview 액터를 이 슬롯의 메쉬 미리보기로 사용한다. */
+	UFUNCTION(BlueprintCallable, Category = "MOU|Lobby|Slot")
+	void SetPreviewActor(AActor* Actor);
+
+	/** PlayerSlotWidget의 PreviewSlotIndex와 동일한 슬롯 액터/컴포넌트 조회 경로. */
+	static AActor* FindLobbyPreviewActor(const UObject* WorldContextObject, int32 SlotIndex);
+	static UCharacterCustomizationComponent* GetOrCreatePreviewComponent(AActor* Actor);
+
 
 	UFUNCTION(BlueprintCallable, Category = "MOU|Lobby|Slot")
 	void SetMember(const FMOURoomMember& InMember, bool bInIsSelf);
@@ -51,4 +67,8 @@ protected:
 	TObjectPtr<UWidget> SelfHighlight;
 private:
 	void RefreshVisuals();
+	TWeakObjectPtr<UCharacterCustomizationComponent> PreviewComponent;
+	void FindPreviewActorForSlot(int32 SlotIndex);
+	FCharacterCustomizationData LastAppliedCustomization;
+	bool bHasAppliedCustomization = false;
 };

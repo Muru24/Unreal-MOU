@@ -253,7 +253,6 @@ void UCarryingComponent::GrabOrDrop()
 
 					Package->AddCarrier(GetOwner());
 				}
-
 				// 아이템 PickUp 처리 (물리 끄기 등 내부 로직 실행)
 				// 중요: 물리 시뮬레이션을 끄는 처리가 반드시 AttachToComponent 이전에 수행되어야 합니다.
 				// 그렇지 않으면 부착(Attach) 직후 물리엔진 충돌로 인해 아이템이 저 멀리 튕겨나가 투명해지는 버그가 발생합니다.

@@ -123,7 +123,8 @@ enum class EChatLoginResultBP : uint8
 	WrongPassword   = 4 UMETA(DisplayName = "비밀번호 불일치"),
 	DuplicateId     = 5 UMETA(DisplayName = "이미 있는 아이디"),
 	InvalidFormat   = 6 UMETA(DisplayName = "형식 위반"),
-	ServerError     = 7 UMETA(DisplayName = "서버 오류")
+	ServerError     = 7 UMETA(DisplayName = "서버 오류"),
+	AlreadyOnline   = 8 UMETA(DisplayName = "이미 접속 중")
 };
 
 /**

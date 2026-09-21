@@ -121,7 +121,8 @@ enum class EServerClientEventType : uint8
 	HostProbeSent,
 
 	/** 서버가 내 공인 게임 엔드포인트를 관측해 알려줬다. Detail 에 "IP:포트". (v10) */
-	ClientEndpointAck
+	ClientEndpointAck,
+	RoomCustomizationAck
 };
 
 /**
@@ -136,6 +137,8 @@ struct FServerClientEvent
 
 	/** Type == LoginAck / RegisterAck 일 때만 유효 */
 	FChatLoginResult Login;
+	FCharacterCustomizationData Customization;
+	uint32 CustomizationRequestId = 0;
 
 	/** Type == RoomListAck 일 때만 유효 */
 	TArray<FMOURoomInfo> Rooms;
@@ -265,6 +268,7 @@ public:
 	virtual void RequestRoomList() = 0;
 	virtual void JoinRoom(int32 RoomId, const FString& RoomPassword) = 0;
 	virtual void LeaveRoom() = 0;
+	virtual bool SetCustomization(int32 RoomId, uint32 RequestId, const FCharacterCustomizationData& Data) { return false; }
 	virtual void SetReady(bool bReady) = 0;
 	virtual void StartGame() = 0;
 

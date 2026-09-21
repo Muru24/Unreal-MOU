@@ -35,6 +35,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Stock|Graph")
 	float GetCurrentMultiplier() const { return CurrentMultiplier; }
 
+	// 현금화 한 배율 위치에 마커 표시
+	UFUNCTION(BlueprintCallable, Category = "Stock|Graph")
+	void SetCashOutMarker(float InMultiplier);
+
+	// 현금화 마커 초기화
+	UFUNCTION(BlueprintCallable, Category = "Stock|Graph")
+	void ResetCashOutMarker();
 protected:
 	// 위젯 생성 시 호출
 	virtual void NativeConstruct() override;
@@ -67,9 +74,9 @@ private:
 
 	// 최대 종료 배율
 	UPROPERTY(EditDefaultsOnly, Category = "Stock|Graph")
-	float MaxStopMultiplier = 5.0f;
+	float MaxStopMultiplier = 3.0f;
 
-	// 1.00x에서 5.00x까지 도달하는 전체 시간
+	// 1.0x에서 3.00x까지 도달하는 전체 시간
 	UPROPERTY(EditDefaultsOnly, Category = "Stock|Graph", meta = (ClampMin = "0.1"))
 	float GraphDuration = 4.0f;
 
@@ -105,6 +112,18 @@ private:
 	// 그래프 진행 여부
 	bool GraphRunning = false;
 
+	// 현금화 지점 표시 여부
+	bool ShowCashOutMarker = false;
+
+	// 현금화한 그래프 위치
+	FVector2D CashOutMarkerPoint = FVector2D::ZeroVector;
+
 	// 그래프 갱신 Timer
 	FTimerHandle GraphTimerHandle;
+
+	// 실제 그래프 선에서 현금화 위치 갱신
+	void UpdateCashOutMarkerPoint();
+
+	// 현금화한 배율 저장
+	float CashOutMarkerMultiplier = 0.0f;
 };

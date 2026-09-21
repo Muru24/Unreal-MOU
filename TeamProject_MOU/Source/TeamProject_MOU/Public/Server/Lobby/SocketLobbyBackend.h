@@ -55,6 +55,7 @@ public:
 	virtual void RequestRoomList() override;
 	virtual void JoinRoom(int32 RoomId, const FString& RoomPassword) override;
 	virtual void LeaveRoom() override;
+	virtual bool SetCustomization(int32 RoomId, uint32 RequestId, const FCharacterCustomizationData& Data) override;
 	virtual void SetReady(bool bReady) override;
 	virtual void StartGame() override;
 	virtual void NotifyHostReady() override;

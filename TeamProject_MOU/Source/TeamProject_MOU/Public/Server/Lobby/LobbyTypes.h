@@ -13,6 +13,7 @@
 
 #include "CoreMinimal.h"
 #include "ChatProtocol.h"
+#include "Data/CustomizationTypes.h"
 #include "LobbyTypes.generated.h"
 
 /**
@@ -141,6 +142,9 @@ struct FMOURoomMember
 
 	UPROPERTY(BlueprintReadOnly, Category = "MOU|Lobby")
 	int32 SlotIndex = INDEX_NONE;
+
+	UPROPERTY(BlueprintReadOnly, Category = "MOU|Lobby")
+	FCharacterCustomizationData Customization;
 
 	/** 계정 번호. 원본은 uint64 지만 블루프린트가 못 다뤄 int64 로 받는다. */
 	UPROPERTY(BlueprintReadOnly, Category = "MOU|Lobby")

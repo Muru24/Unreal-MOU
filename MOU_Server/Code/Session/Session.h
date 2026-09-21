@@ -11,6 +11,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace MOU
@@ -142,6 +143,10 @@ namespace MOU
 		// ForEach 순회 중에 소켓이 닫히는 일은 없다.
 		void Remove(const SessionPtr& Session);
 
+		// 인증된 계정은 동시에 한 세션만 소유한다. 검사와 등록을 같은 락에서 처리한다.
+		bool TryClaimAccount(const SessionPtr& Session, uint64_t UserId,
+		                     const std::string& Name, int32_t TeamId);
+
 		uint64_t AssignUserId();
 		size_t   Count();
 
@@ -160,6 +165,7 @@ namespace MOU
 	private:
 		std::mutex              Mutex;
 		std::vector<SessionPtr> Sessions;
+		std::unordered_map<uint64_t, ClientSession*> AccountOwners;
 		uint64_t                NextUserId = 1;
 	};
 }

@@ -306,6 +306,22 @@ namespace MOU::ServerRuntime
 	}
 
 
+	bool HandleRoomCustomizationReq(const SessionPtr& Session, const char* Body, uint32_t BodySize)
+	{
+		if (!Session->bAuthed || BodySize != sizeof(RoomCustomizationReqBody)) return true;
+		RoomCustomizationReqBody Req{};
+		std::memcpy(&Req, Body, sizeof(Req));
+		RoomCustomizationAckBody Ack{};
+		Ack.RoomId = Req.RoomId;
+		Ack.RequestId = Req.RequestId;
+		Ack.Data = Req.Data;
+		const auto Result = Rooms::SetCustomization(Session->UserId, Req.RoomId, Req.Data);
+		Ack.Result = static_cast<uint8_t>(Result);
+		SendToUsers({Session->UserId}, EOpcode::RoomCustomizationAck, &Ack, sizeof(Ack), nullptr, 0);
+		if (Result == ERoomResult::Success) BroadcastRoomMembers(Req.RoomId);
+		return true;
+	}
+
 	bool HandleRoomReadyReq(const SessionPtr& Session, const char* Body, uint32_t BodySize)
 	{
 		if (!Session->bAuthed || BodySize < sizeof(RoomReadyReqBody))

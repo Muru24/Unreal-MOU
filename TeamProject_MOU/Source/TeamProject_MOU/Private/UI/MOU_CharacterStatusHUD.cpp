@@ -1,25 +1,16 @@
 #include "UI/MOU_CharacterStatusHUD.h"
 #include "Components/Image.h"
-#include "Materials/MaterialInstanceDynamic.h"
+#include "Components/ProgressBar.h"
 #include "Engine/Texture2D.h"
 #include "Math/UnrealMathUtility.h"
 #include "Player/MainCharacter.h"
 #include "Base/BaseAttributeSet.h"
+#include "GameFramework/PlayerController.h"
 
 void UMOU_CharacterStatusHUD::NativeConstruct()
 {
 	Super::NativeConstruct();
 
-	if (Image_HPBar)
-	{
-		MID_HPBar = Image_HPBar->GetDynamicMaterial();
-	}
-
-	if (Image_StaminaBar)
-	{
-		MID_StaminaBar = Image_StaminaBar->GetDynamicMaterial();
-	}
-	
 	// Initial State Update
 	SetPortraitTextureByState(ECharacterStatusState::Happy);
 }
@@ -27,6 +18,8 @@ void UMOU_CharacterStatusHUD::NativeConstruct()
 void UMOU_CharacterStatusHUD::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
+
+	UpdateHUDSway(InDeltaTime);
 
 	if (BoundCharacter.IsValid())
 	{
@@ -49,10 +42,9 @@ void UMOU_CharacterStatusHUD::NativeTick(const FGeometry& MyGeometry, float InDe
 	{
 		CurrentHPPercent = FMath::FInterpTo(CurrentHPPercent, TargetHPPercent, InDeltaTime, CatchUpInterpSpeed);
 		
-		if (MID_HPBar)
+		if (ProgressBar_HP)
 		{
-			// Material parameter name matching the M_UI_RadialProgressBar
-			MID_HPBar->SetScalarParameterValue(FName("Percent"), CurrentHPPercent);
+			ProgressBar_HP->SetPercent(CurrentHPPercent);
 		}
 		
 		bHPUpdated = true;
@@ -61,9 +53,9 @@ void UMOU_CharacterStatusHUD::NativeTick(const FGeometry& MyGeometry, float InDe
 	{
 		// 목표치 도달 시 정확한 값으로 스냅 (0.0009f 등에 머무는 현상 방지)
 		CurrentHPPercent = TargetHPPercent;
-		if (MID_HPBar)
+		if (ProgressBar_HP)
 		{
-			MID_HPBar->SetScalarParameterValue(FName("Percent"), CurrentHPPercent);
+			ProgressBar_HP->SetPercent(CurrentHPPercent);
 		}
 		bHPUpdated = true;
 	}
@@ -73,17 +65,17 @@ void UMOU_CharacterStatusHUD::NativeTick(const FGeometry& MyGeometry, float InDe
 	{
 		CurrentStaminaPercent = FMath::FInterpTo(CurrentStaminaPercent, TargetStaminaPercent, InDeltaTime, CatchUpInterpSpeed);
 		
-		if (MID_StaminaBar)
+		if (ProgressBar_Stamina)
 		{
-			MID_StaminaBar->SetScalarParameterValue(FName("Percent"), CurrentStaminaPercent);
+			ProgressBar_Stamina->SetPercent(CurrentStaminaPercent);
 		}
 	}
 	else if (CurrentStaminaPercent != TargetStaminaPercent)
 	{
 		CurrentStaminaPercent = TargetStaminaPercent;
-		if (MID_StaminaBar)
+		if (ProgressBar_Stamina)
 		{
-			MID_StaminaBar->SetScalarParameterValue(FName("Percent"), CurrentStaminaPercent);
+			ProgressBar_Stamina->SetPercent(CurrentStaminaPercent);
 		}
 	}
 
@@ -112,14 +104,14 @@ void UMOU_CharacterStatusHUD::ForceUpdateStatus(float NewHPPercent, float NewSta
 	TargetStaminaPercent = FMath::Clamp(NewStaminaPercent, 0.0f, 1.0f);
 	CurrentStaminaPercent = TargetStaminaPercent;
 
-	if (MID_HPBar)
+	if (ProgressBar_HP)
 	{
-		MID_HPBar->SetScalarParameterValue(FName("Percent"), CurrentHPPercent);
+		ProgressBar_HP->SetPercent(CurrentHPPercent);
 	}
 
-	if (MID_StaminaBar)
+	if (ProgressBar_Stamina)
 	{
-		MID_StaminaBar->SetScalarParameterValue(FName("Percent"), CurrentStaminaPercent);
+		ProgressBar_Stamina->SetPercent(CurrentStaminaPercent);
 	}
 
 	UpdatePortraitState(CurrentHPPercent);
@@ -174,29 +166,23 @@ void UMOU_CharacterStatusHUD::UpdatePortraitState(float InCurrentHP)
 void UMOU_CharacterStatusHUD::SetPortraitTextureByState(ECharacterStatusState NewState)
 {
 	UTexture2D* TargetPortrait = nullptr;
-	UTexture2D* TargetBg = nullptr;
 
 	switch (NewState)
 	{
 		case ECharacterStatusState::Happy:
 			TargetPortrait = Tex_Happy;
-			TargetBg = Tex_Bg_Happy;
 			break;
 		case ECharacterStatusState::OK:
 			TargetPortrait = Tex_OK;
-			TargetBg = Tex_Bg_OK;
 			break;
 		case ECharacterStatusState::Warning:
 			TargetPortrait = Tex_Warning;
-			TargetBg = Tex_Bg_Warning;
 			break;
 		case ECharacterStatusState::Critical:
 			TargetPortrait = Tex_Critical;
-			TargetBg = Tex_Bg_Critical;
 			break;
 		case ECharacterStatusState::Offline:
 			TargetPortrait = Tex_Offline;
-			TargetBg = Tex_Bg_Offline;
 			break;
 	}
 
@@ -204,9 +190,74 @@ void UMOU_CharacterStatusHUD::SetPortraitTextureByState(ECharacterStatusState Ne
 	{
 		Image_CenterPortrait->SetBrushFromTexture(TargetPortrait);
 	}
+}
 
-	if (Image_Background && TargetBg)
+void UMOU_CharacterStatusHUD::UpdateHUDSway(float InDeltaTime)
+{
+	if (!bEnableSway)
 	{
-		Image_Background->SetBrushFromTexture(TargetBg);
+		return;
+	}
+
+	APlayerController* PC = GetOwningPlayer();
+	if (PC)
+	{
+		const FRotator CurrentControlRot = PC->GetControlRotation();
+		if (bHasPreviousRotation)
+		{
+			const FRotator DeltaRot = (CurrentControlRot - PreviousControlRotation).GetNormalized();
+
+			// 마우스 회전에 따른 오프셋 산출:
+			// Yaw(좌우 마우스 회전): 오른쪽 회전(+Yaw) 시 UI는 관성으로 반대 방향(-X)으로 밀림
+			// Pitch(상하 마우스 회전): 위로 회전(+Pitch) 시 UI는 관성으로 반대 방향(+Y, 화면 아래)으로 밀림
+			FVector2D AddedSway;
+			AddedSway.X = -DeltaRot.Yaw * SwaySensitivity.X;
+			AddedSway.Y = DeltaRot.Pitch * SwaySensitivity.Y;
+
+			// 캐릭터 로컬 이동 속도에 따른 미세 관성 흔들림 추가
+			if (BoundCharacter.IsValid() && MovementSwayIntensity > 0.0f)
+			{
+				const FVector Velocity = BoundCharacter->GetVelocity();
+				const FVector LocalVel = BoundCharacter->GetActorTransform().InverseTransformVector(Velocity);
+				// 좌우 스트레이프(Y) 시 반대 방향으로 밀림
+				AddedSway.X -= (LocalVel.Y / 500.0f) * MovementSwayIntensity;
+				// 전후 이동(X) 시 상하로 미세 바운스
+				AddedSway.Y += (LocalVel.X / 500.0f) * (MovementSwayIntensity * 0.5f);
+			}
+
+			// 목표 흔들림 위치 누적 및 최대 반경 클램프
+			TargetSwayOffset += AddedSway;
+			TargetSwayOffset.X = FMath::Clamp(TargetSwayOffset.X, -MaxSwayOffset, MaxSwayOffset);
+			TargetSwayOffset.Y = FMath::Clamp(TargetSwayOffset.Y, -MaxSwayOffset, MaxSwayOffset);
+		}
+		else
+		{
+			bHasPreviousRotation = true;
+		}
+		PreviousControlRotation = CurrentControlRot;
+	}
+
+	// 1. 현재 흔들림 위치를 목표치로 부드럽게 보간
+	CurrentSwayOffset = FMath::Vector2DInterpTo(CurrentSwayOffset, TargetSwayOffset, InDeltaTime, SwayInterpSpeed);
+
+	// 2. 목표치를 매 프레임 원점(0,0)으로 부드럽게 감쇠 복귀 (마우스 멈춤 시 자연스러운 리턴)
+	TargetSwayOffset = FMath::Vector2DInterpTo(TargetSwayOffset, FVector2D::ZeroVector, InDeltaTime, SwayReturnSpeed);
+
+	// 3. 대상 위젯에 Render Transform 적용 (SwayContainer가 지정되지 않은 경우 전체 루트 위젯에 적용)
+	UWidget* TargetWidget = SwayContainer ? SwayContainer.Get() : GetRootWidget();
+	if (TargetWidget)
+	{
+		TargetWidget->SetRenderTranslation(CurrentSwayOffset);
+		if (TiltAngleMultiplier != 0.0f)
+		{
+			TargetWidget->SetRenderTransformAngle(CurrentSwayOffset.X * TiltAngleMultiplier);
+		}
+	}
+
+	// 4. 중앙 초상화 레이어 다층 패럴랙스(입체 깊이감) 적용
+	if (bEnablePortraitParallax && Image_CenterPortrait)
+	{
+		const FVector2D PortraitOffset = CurrentSwayOffset * (PortraitParallaxMultiplier - 1.0f);
+		Image_CenterPortrait->SetRenderTranslation(PortraitOffset);
 	}
 }

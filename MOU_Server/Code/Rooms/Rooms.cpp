@@ -1,6 +1,7 @@
 #include "Rooms/Rooms.h"
 
 #include "Framing.h"
+#include "CustomizationValidation.h"
 
 #include <algorithm>
 #include <cstring>
@@ -19,6 +20,7 @@ namespace
 		std::string Name;
 		bool        bReady = false;
 		uint8_t     SlotIndex = 0;
+		CharacterCustomization Customization;
 	};
 
 	struct Room
@@ -274,6 +276,24 @@ void Leave(uint64_t UserId, uint32_t& OutRoomId, bool& bOutRoomClosed,
 		R->Members.end());
 }
 
+ERoomResult SetCustomization(uint64_t UserId, uint32_t RoomId, const CharacterCustomization& Data)
+{
+	if (!IsValidCustomization(Data)) return ERoomResult::InvalidRequest;
+	std::lock_guard<std::mutex> Lock(GMutex);
+	Room* R = FindRoomOfMember(UserId);
+	if (!R || R->RoomId != RoomId) return ERoomResult::NotInRoom;
+	if (R->State != ERoomState::Waiting) return ERoomResult::AlreadyStarted;
+	for (Member& M : R->Members)
+	{
+		if (M.UserId == UserId)
+		{
+			M.Customization = Data;
+			return ERoomResult::Success;
+		}
+	}
+	return ERoomResult::NotInRoom;
+}
+
 ERoomResult SetReady(uint64_t UserId, bool bReady, uint32_t& OutRoomId)
 {
 	OutRoomId = 0;
@@ -468,6 +488,7 @@ bool GetMembers(uint32_t RoomId, std::vector<RoomMemberInfo>& OutMembers,
 	for (const Member& M : R.Members)
 	{
 		RoomMemberInfo Info{};
+		Info.Customization = M.Customization;
 		Info.UserId  = M.UserId;
 		Info.bIsHost = (M.UserId == R.HostUserId) ? 1 : 0;
 		Info.bReady  = M.bReady ? 1 : 0;

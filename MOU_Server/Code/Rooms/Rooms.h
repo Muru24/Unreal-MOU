@@ -98,6 +98,8 @@ namespace MOU
 		 * 준비 상태를 바꾼다. 방장은 늘 준비된 것으로 보므로 호출해도 무시된다.
 		 * @param OutRoomId 바뀐 방 번호
 		 */
+		ERoomResult SetCustomization(uint64_t UserId, uint32_t RoomId, const CharacterCustomization& Data);
+
 		ERoomResult SetReady(uint64_t UserId, bool bReady, uint32_t& OutRoomId);
 
 		/**

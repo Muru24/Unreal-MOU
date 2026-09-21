@@ -12,6 +12,7 @@ namespace MOU::ServerRuntime
 	bool HandleRoomJoinReq(const SessionPtr& Session, const char* Body, uint32_t BodySize);
 	bool HandleRoomStateUpdate(const SessionPtr& Session, const char* Body, uint32_t BodySize);
 	bool HandleRoomLeaveReq(const SessionPtr& Session, const char*, uint32_t);
+	bool HandleRoomCustomizationReq(const SessionPtr& Session, const char* Body, uint32_t BodySize);
 	bool HandleRoomReadyReq(const SessionPtr& Session, const char* Body, uint32_t BodySize);
 	bool HandleRoomStartReq(const SessionPtr& Session, const char*, uint32_t);
 	bool HandleRoomHostReadyReq(const SessionPtr& Session, const char*, uint32_t);
