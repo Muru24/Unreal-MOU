@@ -33,6 +33,10 @@ class ATeamProject_MOUPlayerController : public APlayerController
 public:
 	ATeamProject_MOUPlayerController();
 
+	// [SETTLEMENT-000] 정산 UI의 확인 상태를 서버에 전달합니다.
+	UFUNCTION(BlueprintCallable, Server, Reliable, Category = "Run|Settlement")
+	void ServerSetSettlementConfirmed(bool bConfirmed);
+
 	// Call on the widget's owning controller, on either host or client.
 	UFUNCTION(BlueprintCallable, Server, Reliable, Category = "Warehouse|Delivery")
 	void ServerSaveWarehouseDelivery(const TArray<FStoredItemData>& RequestedItems);

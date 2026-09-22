@@ -15,6 +15,8 @@
 #include "Player/MainCharacter.h"
 #include "Subsystems/WarehouseDataSubsystem.h"
 #include "GameFramework/PlayerState.h"
+#include "GameFramework/PlayerController.h"
+#include "GameFramework/GameStateBase.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/PackageName.h"
 #include "TimerManager.h"
@@ -41,6 +43,21 @@ void ATeamProject_MOUGameMode::BeginPlay()
 {
 	Super::BeginPlay();
 	TryStartLevelTimer();
+}
+
+// [SETTLEMENT-005] 접속 종료된 플레이어를 확인 대상에서 제거하고 남은 인원을 다시 검사합니다.
+void ATeamProject_MOUGameMode::Logout(AController* Exiting)
+{
+	if (Exiting)
+	{
+		if (APlayerState* PlayerState = Exiting->GetPlayerState<APlayerState>())
+		{
+			ConfirmedSettlementPlayers.Remove(TWeakObjectPtr<APlayerState>(PlayerState));
+		}
+	}
+
+	Super::Logout(Exiting);
+	CheckAllPlayersConfirmedSettlement();
 }
 
 bool ATeamProject_MOUGameMode::IsLobbyLevel() const
@@ -174,6 +191,109 @@ void ATeamProject_MOUGameMode::CompleteLevelTimeoutSequence()
 
 	bTimeoutTravelStarted = true;
 	TravelToLobbyAfterTimeout();
+}
+
+// [SETTLEMENT-001] 성공 정산이 확정된 상태에서만 확인 또는 확인 취소를 반영합니다.
+void ATeamProject_MOUGameMode::SetSettlementConfirmation(
+	APlayerController* PlayerController, bool bConfirmed)
+{
+	if (!HasAuthority() || bSettlementTravelStarted || !PlayerController
+		|| !LevelSettlementState || !LevelSettlementState->IsFinalized())
+	{
+		return;
+	}
+
+	const FLevelSettlementData Result = LevelSettlementState->GetResult();
+	if (!Result.bSucceeded || Result.Reason != ELevelSettlementReason::Cleared)
+	{
+		return;
+	}
+
+	APlayerState* PlayerState = PlayerController->GetPlayerState<APlayerState>();
+	if (!IsValid(PlayerState))
+	{
+		return;
+	}
+
+	const TWeakObjectPtr<APlayerState> PlayerKey(PlayerState);
+	if (bConfirmed)
+	{
+		ConfirmedSettlementPlayers.Add(PlayerKey);
+	}
+	else
+	{
+		ConfirmedSettlementPlayers.Remove(PlayerKey);
+	}
+
+	CheckAllPlayersConfirmedSettlement(PlayerController);
+}
+
+// [SETTLEMENT-002] 현재 접속 중인 실제 플레이어 전원이 확인했는지 검사합니다.
+void ATeamProject_MOUGameMode::CheckAllPlayersConfirmedSettlement(
+	APlayerController* PreferredRequester)
+{
+	if (!HasAuthority() || bSettlementTravelStarted)
+	{
+		return;
+	}
+
+	const AGameStateBase* CurrentGameState = GetGameState<AGameStateBase>();
+	if (!CurrentGameState)
+	{
+		return;
+	}
+
+	int32 ConnectedPlayerCount = 0;
+	int32 ConfirmedPlayerCount = 0;
+	APlayerController* TravelRequester = nullptr;
+	APlayerController* FirstConfirmedController = nullptr;
+	for (APlayerState* PlayerState : CurrentGameState->PlayerArray)
+	{
+		if (!IsValid(PlayerState) || PlayerState->IsOnlyASpectator())
+		{
+			continue;
+		}
+
+		++ConnectedPlayerCount;
+		if (ConfirmedSettlementPlayers.Contains(TWeakObjectPtr<APlayerState>(PlayerState)))
+		{
+			++ConfirmedPlayerCount;
+			APlayerController* PlayerController = PlayerState->GetPlayerController();
+			if (!FirstConfirmedController)
+			{
+				FirstConfirmedController = PlayerController;
+			}
+			if (PlayerController == PreferredRequester)
+			{
+				TravelRequester = PlayerController;
+			}
+		}
+	}
+
+	if (ConnectedPlayerCount > 0 && ConfirmedPlayerCount == ConnectedPlayerCount)
+	{
+		CompleteSettlementSequence(TravelRequester ? TravelRequester : FirstConfirmedController);
+	}
+}
+
+// [SETTLEMENT-003] 성공한 정상 정산에 대해서만 BP의 기존 저장 및 이동 흐름을 한 번 실행합니다.
+void ATeamProject_MOUGameMode::CompleteSettlementSequence(APlayerController* TravelRequester)
+{
+	if (!HasAuthority() || bSettlementTravelStarted
+		|| !IsValid(TravelRequester)
+		|| !LevelSettlementState || !LevelSettlementState->IsFinalized())
+	{
+		return;
+	}
+
+	const FLevelSettlementData Result = LevelSettlementState->GetResult();
+	if (!Result.bSucceeded || Result.Reason != ELevelSettlementReason::Cleared)
+	{
+		return;
+	}
+
+	bSettlementTravelStarted = true;
+	OnAllPlayersConfirmedSettlement(TravelRequester);
 }
 
 void ATeamProject_MOUGameMode::CheckAllPlayersDead()
@@ -401,4 +521,3 @@ void ATeamProject_MOUGameMode::TravelToLobbyAfterTimeout()
 	RunState->SetRunState(ERunPhase::Resetting, RunState->RunEndReason);
 	GetWorld()->ServerTravel(LobbyPackageName, false);
 }
-
