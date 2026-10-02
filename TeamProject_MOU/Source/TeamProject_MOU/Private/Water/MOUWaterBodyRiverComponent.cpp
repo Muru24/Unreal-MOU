@@ -39,7 +39,7 @@ void UMOUWaterBodyRiverComponent::SetRiverWaterLevelZ(float NewWorldZ, bool bUse
 	// 알려주지 않으면 액터는 움직여도 화면상 물은 예전 위치에 멈춰 보인다. 이 함수는 플래그만
 	// 세팅하고(무거운 작업 없음), 실제 재캡처는 WaterSubsystem이 프레임당 한 번만 처리한다.
 	MarkOwningWaterZoneForRebuild(EWaterZoneRebuildFlags::UpdateWaterInfoTexture);
-}
+} 
 
 void UMOUWaterBodyRiverComponent::AdjustRiverWaterLevel(float DeltaZ, bool bUserTriggered)
 {
