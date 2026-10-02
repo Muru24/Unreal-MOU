@@ -43,10 +43,11 @@ ACharacterBase::ACharacterBase()
 	// 이동 물리 및 점프 관련 기본값 설정
 	GetCharacterMovement()->JumpZVelocity = 500.0f;
 	GetCharacterMovement()->AirControl = 0.35f;
-	GetCharacterMovement()->MaxWalkSpeed = 300.0f;
+	GetCharacterMovement()->MaxWalkSpeed = 500.0f;
 	GetCharacterMovement()->MinAnalogWalkSpeed = 20.0f;
 	GetCharacterMovement()->BrakingDecelerationWalking = 2000.0f;
 	GetCharacterMovement()->BrakingDecelerationFalling = 1500.0f;
+	GetCharacterMovement()->bEnablePhysicsInteraction = false;
 
 	// 기본 AttributeSet 생성 및 등록
 	BaseAttribute = CreateDefaultSubobject<UBaseAttributeSet>(TEXT("AttributeSet"));
@@ -365,11 +366,11 @@ float ACharacterBase::GetCalculatedWalkSpeed() const
 {
 	if (!BaseAttribute)
 	{
-		return FMath::Max(0.0f, 300.0f + SpeedBuffFlat);
+		return FMath::Max(0.0f, 500.0f + SpeedBuffFlat);
 	}
 
 	// 1. 상태별 기본 걷기 속도 (Base Speed) 결정
-	float BaseSpeed = 300.0f;
+	float BaseSpeed = 500.0f;
 
 	static const FGameplayTag PushingTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Pushing"), false);
 	static const FGameplayTag HeavyCarryTag = FGameplayTag::RequestGameplayTag(FName("State.Player.Carrying.Heavy"), false);
@@ -386,7 +387,7 @@ float ACharacterBase::GetCalculatedWalkSpeed() const
 		(HeavyCarryTag.IsValid() && HasMatchingGameplayTag(HeavyCarryTag)) ||
 		(CarryCharTag.IsValid() && HasMatchingGameplayTag(CarryCharTag)))
 	{
-		BaseSpeed = 150.0f; // 밀기, 무거운 택배 운반, 시체 운반 시 기본 속도 150
+		BaseSpeed = 350.0f; // 밀기, 무거운 택배 운반, 시체 운반 시 기본 속도 350
 	}
 
 	// 2. 소지 무게 비율(WeightRatio) 계산
@@ -407,11 +408,11 @@ float ACharacterBase::GetCalculatedWalkSpeed() const
 	}
 	else if (WeightRatio > 1.3f)
 	{
-		Result = BaseSpeed * 0.50f; // 과적 2단계: 50% 감속 (일반 150, 밀기/무거운택배 75)
+		Result = BaseSpeed * 0.50f; // 과적 2단계: 50% 감속 (일반 250, 밀기/무거운택배 175)
 	}
 	else if (WeightRatio > 1.0f)
 	{
-		Result = BaseSpeed * 0.85f; // 과적 1단계: 15% 감속 (일반 255, 밀기/무거운택배 127.5)
+		Result = BaseSpeed * 0.85f; // 과적 1단계: 15% 감속 (일반 425, 밀기/무거운택배 297.5)
 	}
 	else
 	{

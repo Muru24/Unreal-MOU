@@ -12,7 +12,7 @@ UBaseAttributeSet::UBaseAttributeSet()
 	MaxHealth = 100.0f;
 	Stemina = 100.0f;
 	MaxStemina = 100.0f;
-	MoveSpeed = 300.0f;
+	MoveSpeed = 500.0f;
 	MaxMoveSpeed = 2000.0f;
 	CurrentWeight = 0.0f;
 	MaxWeight = 100.0f;

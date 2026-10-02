@@ -537,7 +537,7 @@ protected:
 	// ---------------------------------------------------------
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Flashlight")
-	TObjectPtr<class UPointLightComponent> FlashlightLight;
+	TObjectPtr<class USpotLightComponent> FlashlightLight;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> FlashlightToggleAction; // 4번 키 (발광 토글)
@@ -589,9 +589,12 @@ protected:
 	UFUNCTION(BlueprintPure, Category = "Flashlight")
 	FLinearColor GetCurrentFlashlightColor() const;
 
-	// 머티리얼 DMI 및 PointLight 비주얼 동기화 갱신
+	// 머티리얼 DMI 및 Spotlight 비주얼 동기화 갱신
 	UFUNCTION(BlueprintCallable, Category = "Flashlight")
 	void UpdateFlashlightVisuals();
+
+	// 스포트라이트 시선 방향 및 위치 실시간 동기화
+	void UpdateFlashlightTransform();
 
 	// ---------------------------------------------------------
 	// [이모트(감정표현) 시스템]

@@ -26,5 +26,5 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Sprint")
 	float SprintSpeedMultiplier = 2.0f;
 
-	float OriginalBaseMoveSpeed = 300.0f;
+	float OriginalBaseMoveSpeed = 500.0f;
 };

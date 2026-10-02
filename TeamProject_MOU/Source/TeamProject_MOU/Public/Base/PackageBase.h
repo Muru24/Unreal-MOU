@@ -159,6 +159,10 @@ protected:
 	UFUNCTION(NetMulticast, Unreliable)
 	void MulticastPlayHitSound(FVector HitLocation, float VolumeMultiplier, float PitchMultiplier);
 
+	// [RPC] 택배가 바닥에 완전히 멈추면 물리를 비활성화하여 플레이어가 몸으로 밀지 못하게 고정
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastSettleOnGround();
+
 public:
 	// ---------------------------------------------------------
 	// [사운드 시스템 (Audio)]
@@ -188,6 +192,9 @@ private:
 	// 마지막 충돌음 재생 시간 추적용
 	float LastHitSoundTime = -1.0f;
 
+	// 지면 안정화(정지) 감지 타이머 (멈추면 물리를 꺼서 캐릭터가 몸으로 밀지 못하게 고정)
+	float GroundSettleTimer = 0.0f;
+
 public:
 	// ---------------------------------------------------------
 	// [아이템 베이스 오버라이드]
@@ -206,6 +213,7 @@ public:
 	// [클라이언트 동기화] 물리 콜리전 상태 동기화를 위해 오버라이드
 	virtual void MulticastPickUp_Implementation(AActor* Picker) override;
 	virtual void MulticastDrop_Implementation(FVector DropLocation, AActor* Dropper = nullptr) override;
+	virtual void MulticastThrow_Implementation(FVector ThrowVelocity, AActor* Thrower = nullptr) override;
 
 	// ---------------------------------------------------------
 	// [밀기 인터페이스 구현 (IPushableInterface)]

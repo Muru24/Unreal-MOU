@@ -847,6 +847,7 @@ void ATeamProject_MOUPlayerController::CloseInGameMenu()
 	{
 		InGameMenuWidget->RemoveFromParent();
 	}
+	InGameMenuWidget = nullptr;
 
 	FInputModeGameOnly InputMode;
 	SetInputMode(InputMode);

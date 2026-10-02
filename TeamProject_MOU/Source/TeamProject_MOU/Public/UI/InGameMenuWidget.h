@@ -23,6 +23,7 @@ class TEAMPROJECT_MOU_API UInGameMenuWidget : public UUserWidget
 
 public:
 	virtual void NativeConstruct() override;
+	virtual void NativeDestruct() override;
 	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
 
 	/** 게임으로 돌아가기 (메뉴 닫기) */
@@ -118,5 +119,6 @@ private:
 	void OnSettingsClosed();
 
 	bool bIsShowingSettings = false;
+	bool bEventsBound = false;
 	FTimerHandle SettingsHideTimerHandle;
 };

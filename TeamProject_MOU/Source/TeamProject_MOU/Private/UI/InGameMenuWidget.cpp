@@ -16,21 +16,37 @@ void UInGameMenuWidget::NativeConstruct()
 
 	SetIsFocusable(true);
 
-	if (Button_Resume)
+	if (!bEventsBound)
 	{
-		Button_Resume->OnClicked.AddDynamic(this, &UInGameMenuWidget::OnResumeClicked);
+		if (Button_Resume)
+		{
+			Button_Resume->OnClicked.AddDynamic(this, &UInGameMenuWidget::OnResumeClicked);
+		}
+		if (Button_Settings)
+		{
+			Button_Settings->OnClicked.AddDynamic(this, &UInGameMenuWidget::OnSettingsClicked);
+		}
+		if (Button_ReturnToLobby)
+		{
+			Button_ReturnToLobby->OnClicked.AddDynamic(this, &UInGameMenuWidget::OnReturnToLobbyClicked);
+		}
+		if (Button_QuitDesktop)
+		{
+			Button_QuitDesktop->OnClicked.AddDynamic(this, &UInGameMenuWidget::OnQuitDesktopClicked);
+		}
+
+		if (SettingsMenuWidget)
+		{
+			SettingsMenuWidget->OnSettingsMenuClosed.AddDynamic(this, &UInGameMenuWidget::OnSettingsClosed);
+		}
+
+		bEventsBound = true;
 	}
-	if (Button_Settings)
+
+	StopAllAnimations();
+	if (UWorld* World = GetWorld())
 	{
-		Button_Settings->OnClicked.AddDynamic(this, &UInGameMenuWidget::OnSettingsClicked);
-	}
-	if (Button_ReturnToLobby)
-	{
-		Button_ReturnToLobby->OnClicked.AddDynamic(this, &UInGameMenuWidget::OnReturnToLobbyClicked);
-	}
-	if (Button_QuitDesktop)
-	{
-		Button_QuitDesktop->OnClicked.AddDynamic(this, &UInGameMenuWidget::OnQuitDesktopClicked);
+		World->GetTimerManager().ClearTimer(SettingsHideTimerHandle);
 	}
 
 	if (Panel_MainMenu)
@@ -40,26 +56,37 @@ void UInGameMenuWidget::NativeConstruct()
 
 	if (SettingsMenuWidget)
 	{
-		SettingsMenuWidget->OnSettingsMenuClosed.AddDynamic(this, &UInGameMenuWidget::OnSettingsClosed);
-		// 초기에는 설정 화면 숨김 (환경설정을 눌렀을 때 등장)
+		SettingsMenuWidget->SetRenderScale(FVector2D(1.0f, 1.0f));
+		SettingsMenuWidget->SetRenderTranslation(FVector2D::ZeroVector);
+		SettingsMenuWidget->SetRenderOpacity(1.0f);
 		SettingsMenuWidget->SetVisibility(ESlateVisibility::Collapsed);
 	}
 
-	// 기본은 메인 메뉴 표시
 	bIsShowingSettings = false;
 	if (WidgetSwitcher_Menu)
 	{
 		WidgetSwitcher_Menu->SetActiveWidgetIndex(0);
 	}
 
-	// 1. C++ 바인딩된 메인 메뉴 슬라이드 인 애니메이션이 있다면 자동 재생
 	if (Anim_MenuSlideIn)
 	{
 		PlayAnimation(Anim_MenuSlideIn);
 	}
 
-	// 2. 블루프린트 이벤트 호출 (에디터에서 커스텀 애니메이션 노드를 연결할 수 있음)
 	BP_OnMenuOpen();
+}
+
+void UInGameMenuWidget::NativeDestruct()
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(SettingsHideTimerHandle);
+	}
+
+	StopAllAnimations();
+	bIsShowingSettings = false;
+
+	Super::NativeDestruct();
 }
 
 FReply UInGameMenuWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
@@ -103,23 +130,28 @@ void UInGameMenuWidget::FinishCloseMenu()
 void UInGameMenuWidget::OpenSettings()
 {
 	bIsShowingSettings = true;
-	GetWorld()->GetTimerManager().ClearTimer(SettingsHideTimerHandle);
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(SettingsHideTimerHandle);
+	}
 
-	// 1. 메인 메뉴 패널 감추기
+	StopAllAnimations();
+
 	if (Panel_MainMenu)
 	{
 		Panel_MainMenu->SetVisibility(ESlateVisibility::Collapsed);
 	}
 
-	// 2. 위젯 스위처가 있으면 1번 슬롯(설정)으로 전환
 	if (WidgetSwitcher_Menu)
 	{
 		WidgetSwitcher_Menu->SetActiveWidgetIndex(1);
 	}
 
-	// 3. 설정 메뉴 표시
 	if (SettingsMenuWidget)
 	{
+		SettingsMenuWidget->SetRenderScale(FVector2D(1.0f, 1.0f));
+		SettingsMenuWidget->SetRenderTranslation(FVector2D::ZeroVector);
+		SettingsMenuWidget->SetRenderOpacity(1.0f);
 		SettingsMenuWidget->SetVisibility(ESlateVisibility::Visible);
 	}
 
@@ -134,40 +166,72 @@ void UInGameMenuWidget::OpenSettings()
 void UInGameMenuWidget::OnSettingsClosed()
 {
 	bIsShowingSettings = false;
-	GetWorld()->GetTimerManager().ClearTimer(SettingsHideTimerHandle);
-
-	// 위젯 스위처가 있으면 0번 슬롯(메인)으로 전환
-	if (WidgetSwitcher_Menu)
+	if (UWorld* World = GetWorld())
 	{
-		WidgetSwitcher_Menu->SetActiveWidgetIndex(0);
+		World->GetTimerManager().ClearTimer(SettingsHideTimerHandle);
 	}
 
-	// 슬라이드 아웃 애니메이션이 있으면 재생 후 설정창 숨기고 메인 메뉴 복원
+	StopAllAnimations();
+
 	if (Anim_SettingsSlideOut && Anim_SettingsSlideOut->GetEndTime() > 0.05f)
 	{
 		PlayAnimation(Anim_SettingsSlideOut);
 		const float AnimLength = FMath::Min(Anim_SettingsSlideOut->GetEndTime(), 0.5f);
-		GetWorld()->GetTimerManager().SetTimer(SettingsHideTimerHandle, [this]()
+		if (UWorld* World = GetWorld())
 		{
-			if (!bIsShowingSettings)
+			World->GetTimerManager().SetTimer(SettingsHideTimerHandle, [this]()
 			{
-				if (SettingsMenuWidget)
+				if (!bIsShowingSettings)
 				{
-					SettingsMenuWidget->SetVisibility(ESlateVisibility::Collapsed);
+					if (SettingsMenuWidget)
+					{
+						SettingsMenuWidget->SetRenderScale(FVector2D(1.0f, 1.0f));
+						SettingsMenuWidget->SetRenderTranslation(FVector2D::ZeroVector);
+						SettingsMenuWidget->SetRenderOpacity(1.0f);
+						SettingsMenuWidget->SetVisibility(ESlateVisibility::Collapsed);
+					}
+					if (WidgetSwitcher_Menu)
+					{
+						WidgetSwitcher_Menu->SetActiveWidgetIndex(0);
+					}
+					if (Panel_MainMenu)
+					{
+						Panel_MainMenu->SetVisibility(ESlateVisibility::Visible);
+					}
 				}
-				if (Panel_MainMenu)
-				{
-					Panel_MainMenu->SetVisibility(ESlateVisibility::Visible);
-				}
+			}, AnimLength, false);
+		}
+		else
+		{
+			if (SettingsMenuWidget)
+			{
+				SettingsMenuWidget->SetRenderScale(FVector2D(1.0f, 1.0f));
+				SettingsMenuWidget->SetRenderTranslation(FVector2D::ZeroVector);
+				SettingsMenuWidget->SetRenderOpacity(1.0f);
+				SettingsMenuWidget->SetVisibility(ESlateVisibility::Collapsed);
 			}
-		}, AnimLength, false);
+			if (WidgetSwitcher_Menu)
+			{
+				WidgetSwitcher_Menu->SetActiveWidgetIndex(0);
+			}
+			if (Panel_MainMenu)
+			{
+				Panel_MainMenu->SetVisibility(ESlateVisibility::Visible);
+			}
+		}
 	}
 	else
 	{
-		// 즉시 설정창 숨기고 메인 메뉴 복원
 		if (SettingsMenuWidget)
 		{
+			SettingsMenuWidget->SetRenderScale(FVector2D(1.0f, 1.0f));
+			SettingsMenuWidget->SetRenderTranslation(FVector2D::ZeroVector);
+			SettingsMenuWidget->SetRenderOpacity(1.0f);
 			SettingsMenuWidget->SetVisibility(ESlateVisibility::Collapsed);
+		}
+		if (WidgetSwitcher_Menu)
+		{
+			WidgetSwitcher_Menu->SetActiveWidgetIndex(0);
 		}
 		if (Panel_MainMenu)
 		{

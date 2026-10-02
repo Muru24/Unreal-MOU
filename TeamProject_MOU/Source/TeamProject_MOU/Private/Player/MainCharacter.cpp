@@ -23,7 +23,7 @@
 #include "Net/UnrealNetwork.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
-#include "Components/PointLightComponent.h"
+#include "Components/SpotLightComponent.h"
 #include "Ability/GA_Sprint.h"
 #include "Ability/GA_PushObject.h"
 #include "Ability/GA_CarryItem.h"
@@ -54,12 +54,15 @@ AMainCharacter::AMainCharacter()
 	InventoryComponent = CreateDefaultSubobject<UInventoryComponent>(TEXT("InventoryComponent"));
 	CustomizationComponent = CreateDefaultSubobject<UCharacterCustomizationComponent>(TEXT("CustomizationComponent"));
 
-	// 발광(손전등 대체) 포인트 라이트 컴포넌트 생성 및 메시 부착
-	FlashlightLight = CreateDefaultSubobject<UPointLightComponent>(TEXT("FlashlightLight"));
-	FlashlightLight->SetupAttachment(GetMesh());
-	FlashlightLight->SetRelativeLocation(FVector(0.0f, 30.0f, 60.0f));
-	FlashlightLight->SetIntensity(3000.0f);
-	FlashlightLight->SetAttenuationRadius(800.0f);
+	// 손전등 스포트라이트 컴포넌트 생성 및 RootComponent 부착 (애니메이션 머리 흔들림 분리)
+	FlashlightLight = CreateDefaultSubobject<USpotLightComponent>(TEXT("FlashlightLight"));
+	FlashlightLight->SetupAttachment(RootComponent);
+	FlashlightLight->SetRelativeLocation(FVector(0.0f, 0.0f, 60.0f));
+	FlashlightLight->SetRelativeRotation(FRotator::ZeroRotator);
+	FlashlightLight->SetIntensity(25000.0f);
+	FlashlightLight->SetAttenuationRadius(3000.0f);
+	FlashlightLight->SetInnerConeAngle(20.0f);
+	FlashlightLight->SetOuterConeAngle(35.0f);
 	FlashlightLight->SetVisibility(false);
 	FlashlightLight->SetCastShadows(true);
 
@@ -101,6 +104,7 @@ AMainCharacter::AMainCharacter()
 	if (GetCharacterMovement())
 	{
 		GetCharacterMovement()->bOrientRotationToMovement = false;
+		GetCharacterMovement()->bEnablePhysicsInteraction = false;
 	}
 
 	// CameraBoom은 베이스 클래스 소유라 삭제 불가 → 완전히 비활성화
@@ -534,6 +538,12 @@ void AMainCharacter::Tick(float DeltaTime)
 		{
 			ServerToggleFlashlight(false);
 		}
+	}
+
+	// [스포트라이트 시선 추적 및 위치 동기화]
+	if (bIsFlashlightOn && FlashlightLight)
+	{
+		UpdateFlashlightTransform();
 	}
 
 	// [팀원 부활 차징 처리]
@@ -2907,12 +2917,16 @@ void AMainCharacter::ToggleFlashlight()
 		return;
 	}
 
-	ServerToggleFlashlight(!bIsFlashlightOn);
+	// 로컬 즉시 예측 갱신 (0ms 지연 반응)
+	bIsFlashlightOn = !bIsFlashlightOn;
+	UpdateFlashlightVisuals();
+
+	ServerToggleFlashlight(bIsFlashlightOn);
 }
 
 void AMainCharacter::ServerToggleFlashlight_Implementation(bool bNewState)
 {
-	// 배터리가 없으면 켜기 불가
+	// 배터리가 없으면 켜기 불가 (로컬 예측 롤백)
 	if (bNewState && BaseAttribute && BaseAttribute->GetBattery() <= 0.0f)
 	{
 		bIsFlashlightOn = false;
@@ -2926,6 +2940,13 @@ void AMainCharacter::ServerToggleFlashlight_Implementation(bool bNewState)
 
 void AMainCharacter::CycleFlashlightColor()
 {
+	// 로컬 즉시 색상 순환 갱신 (0ms 반응)
+	if (FlashlightColorPresets.Num() > 0)
+	{
+		FlashlightColorIndex = (FlashlightColorIndex + 1) % FlashlightColorPresets.Num();
+		UpdateFlashlightVisuals();
+	}
+
 	ServerCycleFlashlightColor();
 }
 
@@ -2972,12 +2993,43 @@ void AMainCharacter::UpdateFlashlightVisuals()
 		}
 	}
 
-	// 포인트 라이트 조명 컴포넌트 갱신
+	// 스포트라이트 조명 컴포넌트 갱신
 	if (FlashlightLight)
 	{
 		FlashlightLight->SetVisibility(bIsFlashlightOn);
 		FlashlightLight->SetLightColor(CurrentColor);
+		if (bIsFlashlightOn)
+		{
+			UpdateFlashlightTransform();
+		}
 	}
+}
+
+void AMainCharacter::UpdateFlashlightTransform()
+{
+	if (!FlashlightLight || !bIsFlashlightOn)
+	{
+		return;
+	}
+
+	FVector LightLocation;
+	FRotator LightRotation;
+
+	if (IsLocallyControlled())
+	{
+		LightRotation = GetViewRotation();
+		FVector CamLoc = GetFollowCamera() ? GetFollowCamera()->GetComponentLocation() : (GetActorLocation() + FVector(0.0f, 0.0f, 60.0f));
+		// 카메라 위치에서 시선 방향으로 25cm 전방 배치하여 캐릭터 자체 메시/그림자 차폐 방지
+		LightLocation = CamLoc + (LightRotation.Vector() * 25.0f);
+	}
+	else
+	{
+		LightRotation = GetBaseAimRotation();
+		FVector HeadLoc = (GetMesh() && GetMesh()->DoesSocketExist(FName("head"))) ? GetMesh()->GetSocketLocation(FName("head")) : (GetActorLocation() + FVector(0.0f, 0.0f, 60.0f));
+		LightLocation = HeadLoc + (LightRotation.Vector() * 25.0f);
+	}
+
+	FlashlightLight->SetWorldLocationAndRotation(LightLocation, LightRotation);
 }
 
 void AMainCharacter::OnSlapStarted()

@@ -23,8 +23,8 @@ protected:
 	FActiveGameplayEffectHandle ActivePushEffectHandle;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Push")
-	float PushWalkSpeed = 150.0f;
+	float PushWalkSpeed = 350.0f;
 
-	float OriginalBaseMoveSpeed = 300.0f;
+	float OriginalBaseMoveSpeed = 500.0f;
 	bool bOriginalOrientRotation = true;
 };

@@ -7,10 +7,10 @@
 
 UMOU_GameUserSettings::UMOU_GameUserSettings()
 {
-	MasterVolume = 1.0f;
-	BGMVolume = 0.8f;
-	SFXVolume = 1.0f;
-	VoiceVolume = 1.0f;
+	MasterVolume = 0.5f;
+	BGMVolume = 0.5f;
+	SFXVolume = 0.5f;
+	VoiceVolume = 0.5f;
 	MicSensitivity = 0.05f;
 
 	MouseSensitivity = 1.0f;
@@ -27,10 +27,21 @@ void UMOU_GameUserSettings::SetToDefaults()
 {
 	Super::SetToDefaults();
 
-	MasterVolume = 1.0f;
-	BGMVolume = 0.8f;
-	SFXVolume = 1.0f;
-	VoiceVolume = 1.0f;
+	const FIntPoint DesktopRes = GetDesktopResolution();
+	if (DesktopRes.X > 0 && DesktopRes.Y > 0)
+	{
+		SetScreenResolution(DesktopRes);
+	}
+
+	SetFullscreenMode(EWindowMode::Fullscreen);
+	SetOverallScalabilityLevel(1);
+	SetVSyncEnabled(false);
+	SetFrameRateLimit(0.0f);
+
+	MasterVolume = 0.5f;
+	BGMVolume = 0.5f;
+	SFXVolume = 0.5f;
+	VoiceVolume = 0.5f;
 	MicSensitivity = 0.05f;
 
 	MouseSensitivity = 1.0f;
@@ -38,6 +49,19 @@ void UMOU_GameUserSettings::SetToDefaults()
 	FieldOfView = 90.0f;
 
 	CustomKeyBindings.Empty();
+	MOUSettingsVersion = 1;
+}
+
+void UMOU_GameUserSettings::LoadSettings(bool bForceReload)
+{
+	Super::LoadSettings(bForceReload);
+
+	if (MOUSettingsVersion < 1)
+	{
+		SetToDefaults();
+		MOUSettingsVersion = 1;
+		SaveSettings();
+	}
 }
 
 void UMOU_GameUserSettings::ApplyNonResolutionSettings()

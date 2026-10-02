@@ -30,6 +30,7 @@ public:
 
 	virtual void SetToDefaults() override;
 	virtual void ApplyNonResolutionSettings() override;
+	virtual void LoadSettings(bool bForceReload = false) override;
 
 	// =========================================================================
 	// [오디오 설정]
@@ -114,16 +115,16 @@ public:
 protected:
 	// --- 오디오 저장 변수 ---
 	UPROPERTY(Config)
-	float MasterVolume = 1.0f;
+	float MasterVolume = 0.5f;
 
 	UPROPERTY(Config)
-	float BGMVolume = 0.8f;
+	float BGMVolume = 0.5f;
 
 	UPROPERTY(Config)
-	float SFXVolume = 1.0f;
+	float SFXVolume = 0.5f;
 
 	UPROPERTY(Config)
-	float VoiceVolume = 1.0f;
+	float VoiceVolume = 0.5f;
 
 	UPROPERTY(Config)
 	float MicSensitivity = 0.05f;
@@ -141,4 +142,7 @@ protected:
 	// --- 키 바인딩 저장 (ActionName -> Key) ---
 	UPROPERTY(Config)
 	TMap<FName, FKey> CustomKeyBindings;
+
+	UPROPERTY(Config)
+	int32 MOUSettingsVersion = 0;
 };

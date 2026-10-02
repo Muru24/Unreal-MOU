@@ -35,6 +35,13 @@ void APackageBase::BeginPlay()
 	Super::BeginPlay();
 	
 	CurrentSpoilTime = MaxSpoilTime;
+	GroundSettleTimer = 0.0f;
+
+	if (MeshComponent)
+	{
+		MeshComponent->SetLinearDamping(1.5f);
+		MeshComponent->SetAngularDamping(2.0f);
+	}
 }
 
 bool APackageBase::CanBePickedUpBy(AActor* PotentialPicker) const
@@ -83,6 +90,25 @@ void APackageBase::Tick(float DeltaTime)
 	// 서버에서만 운반 로직 수행
 	if (HasAuthority())
 	{
+		// [지면 안정화 판정] 바닥에 놓여서 멈춰있는 택배는 물리를 꺼서 플레이어가 몸으로 밀지 못하게 고정
+		if (CurrentCarriers.Num() == 0 && GetAttachParentActor() == nullptr && MeshComponent && MeshComponent->IsSimulatingPhysics())
+		{
+			const float CurrentSpeedSq = MeshComponent->GetComponentVelocity().SizeSquared();
+			if (CurrentSpeedSq < 30.0f)
+			{
+				GroundSettleTimer += DeltaTime;
+				if (GroundSettleTimer >= 0.2f)
+				{
+					MulticastSettleOnGround();
+					GroundSettleTimer = 0.0f;
+				}
+			}
+			else
+			{
+				GroundSettleTimer = 0.0f;
+			}
+		}
+
 		// [전환 유예 타이머] 매 프레임 감산
 		if (TransitionGracePeriod > 0.0f)
 		{
@@ -368,6 +394,7 @@ void APackageBase::LoadItemFromData_Implementation(const FStoredItemInstanceData
 void APackageBase::MulticastPickUp_Implementation(AActor* Picker)
 {
 	Super::MulticastPickUp_Implementation(Picker);
+	GroundSettleTimer = 0.0f;
 
 	// 무거운 택배는 서버와 모든 클라이언트에서 상호작용은 유지하되 물리 및 캐릭터 충돌을 끕니다. (동기화 불일치/떨림 방지)
 	if (PackageType == EPackageType::Heavy)
@@ -382,10 +409,33 @@ void APackageBase::MulticastDrop_Implementation(FVector DropLocation, AActor* Dr
 {
 	Super::MulticastDrop_Implementation(DropLocation, Dropper);
 
-	// 내려놓을 때는 서버와 모든 클라이언트에서 충돌을 정상 복구합니다.
-	if (PackageType == EPackageType::Heavy)
+	GroundSettleTimer = 0.0f;
+	if (MeshComponent)
 	{
 		MeshComponent->SetSimulatePhysics(true);
+		MeshComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		MeshComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+	}
+}
+
+void APackageBase::MulticastThrow_Implementation(FVector ThrowVelocity, AActor* Thrower)
+{
+	Super::MulticastThrow_Implementation(ThrowVelocity, Thrower);
+
+	GroundSettleTimer = 0.0f;
+	if (MeshComponent)
+	{
+		MeshComponent->SetSimulatePhysics(true);
+		MeshComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		MeshComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+	}
+}
+
+void APackageBase::MulticastSettleOnGround_Implementation()
+{
+	if (MeshComponent)
+	{
+		MeshComponent->SetSimulatePhysics(false);
 		MeshComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 		MeshComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
 	}
@@ -814,8 +864,10 @@ void APackageBase::ApplyTrapStatusEffect_Implementation(TSubclassOf<UGameplayEff
 
 void APackageBase::ApplyTrapImpulse_Implementation(FVector ImpulseVector)
 {
-	if (MeshComponent && MeshComponent->IsSimulatingPhysics())
+	GroundSettleTimer = 0.0f;
+	if (MeshComponent)
 	{
+		MeshComponent->SetSimulatePhysics(true);
 		MeshComponent->AddImpulse(ImpulseVector, NAME_None, true);
 	}
 }

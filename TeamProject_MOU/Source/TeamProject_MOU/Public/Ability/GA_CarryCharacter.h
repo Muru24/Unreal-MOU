@@ -25,5 +25,5 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Carry|Character")
 	float SpeedMultiplier = 0.75f;
 
-	float OriginalBaseMoveSpeed = 300.0f;
+	float OriginalBaseMoveSpeed = 500.0f;
 };

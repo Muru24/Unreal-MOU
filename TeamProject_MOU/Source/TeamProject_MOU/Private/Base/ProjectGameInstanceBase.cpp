@@ -5,10 +5,17 @@
 #include "Base/ProjectGameStateBase.h"
 #include "Engine/World.h"
 #include "Subsystems/WarehouseDataSubsystem.h"
+#include "UI/MOU_GameUserSettings.h"
 
 void UProjectGameInstanceBase::Init()
 {
 	Super::Init();
+
+	if (UMOU_GameUserSettings* UserSettings = UMOU_GameUserSettings::GetMOUGameUserSettings())
+	{
+		UserSettings->ApplySettings(false);
+		UserSettings->ApplyAudioSettings(this);
+	}
 
 	// ServerTravel / OpenLevel 등으로 새로운 맵을 읽기 직전에 호출되는 델리게이트 등록
 	PreLoadMapHandle =

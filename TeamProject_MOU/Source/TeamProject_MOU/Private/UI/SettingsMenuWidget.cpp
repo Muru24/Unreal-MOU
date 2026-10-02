@@ -512,6 +512,13 @@ void USettingsMenuWidget::ResetToDefaults()
 
 void USettingsMenuWidget::CloseSettings()
 {
+	if (UMOU_GameUserSettings* UserSettings = GetUserSettings())
+	{
+		UserSettings->ApplySettings(false);
+		UserSettings->SaveSettings();
+		UserSettings->ApplyAudioSettings(GetWorld());
+	}
+
 	OnSettingsMenuClosed.Broadcast();
 }
 
